@@ -10,7 +10,7 @@ type ToolCall struct {
 
 type LLMResponse struct {
 	Content      string
-	ToolCalls    []ToolCall
+	ToolCalls    []*ToolCall
 	FinishReason string
 	PromptTokens int
 	OutputTokens int

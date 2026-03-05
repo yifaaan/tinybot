@@ -104,20 +104,20 @@ func (s *Session) GetHistory(n int) []*Message {
 	return sliced
 }
 
-// FileSessionManager manages conversation sessions.
+// FileSessionRepository manages conversation sessions.
 // Sessions are stored as JSONL files in the sessions directory.
-type FileSessionManager struct {
+type FileSessionRepository struct {
 	WorkSpace        string
 	SessionDir       string
 	LegacySessionDir string
 	cache            map[string]*Session
 }
 
-func NewSessionManager(workspace string) *FileSessionManager {
+func NewSessionRepo(workspace string) *FileSessionRepository {
 	sessionDir := filepath.Join(workspace, "sessions")
 	_ = os.MkdirAll(sessionDir, 0755)
 
-	return &FileSessionManager{
+	return &FileSessionRepository{
 		WorkSpace:  workspace,
 		SessionDir: sessionDir,
 		cache:      make(map[string]*Session),
@@ -125,7 +125,7 @@ func NewSessionManager(workspace string) *FileSessionManager {
 }
 
 // Get the file path for a session.
-func (m *FileSessionManager) GetSessionPath(key string) string {
+func (m *FileSessionRepository) GetSessionPath(key string) string {
 	safeKey := safeFilename(strings.ReplaceAll(key, ":", "_"))
 	return filepath.Join(m.SessionDir, fmt.Sprintf("%s.jsonl", safeKey))
 }
@@ -143,7 +143,7 @@ func safeFilename(name string) string {
 // Returns:
 //
 //	The session.
-func (m *FileSessionManager) GetOrCreateSession(key string) *Session {
+func (m *FileSessionRepository) GetOrCreateSession(key string) *Session {
 	if s, ok := m.cache[key]; ok {
 		return s
 	}
@@ -176,7 +176,7 @@ func (m *FileSessionManager) GetOrCreateSession(key string) *Session {
 //	    "tool_call_id": "...",
 //	    "name": "..."
 //	  }
-func (m *FileSessionManager) LoadSession(key string) (*Session, error) {
+func (m *FileSessionRepository) LoadSession(key string) (*Session, error) {
 	path := m.GetSessionPath(key)
 	_, err := os.Stat(path)
 	if err != nil {
@@ -250,7 +250,7 @@ func (m *FileSessionManager) LoadSession(key string) (*Session, error) {
 	}, nil
 }
 
-func (m *FileSessionManager) SaveSession(s *Session) error {
+func (m *FileSessionRepository) SaveSession(s *Session) error {
 	if s == nil {
 		return errors.New("session is nil")
 	}
@@ -294,12 +294,12 @@ func (m *FileSessionManager) SaveSession(s *Session) error {
 }
 
 // Remove a session from the in-memory cache.
-func (m *FileSessionManager) Invalidate(key string) {
+func (m *FileSessionRepository) Invalidate(key string) {
 	delete(m.cache, key)
 }
 
 // List all sessions.
-func (m *FileSessionManager) ListSessions() ([]map[string]any, error) {
+func (m *FileSessionRepository) ListSessions() ([]map[string]any, error) {
 	filenames, err := filepath.Glob(filepath.Join(m.SessionDir, "*.jsonl"))
 	if err != nil {
 		return nil, err

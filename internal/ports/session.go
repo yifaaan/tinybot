@@ -2,7 +2,7 @@ package ports
 
 import "tinybot/internal/domain/model"
 
-type SessionManager interface {
+type SessionRepository interface {
 	// Get the file path for a session.
 	// Args:
 	// 	key: Session key (usually channel:ChatID).
