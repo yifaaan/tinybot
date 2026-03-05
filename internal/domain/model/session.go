@@ -113,7 +113,7 @@ type FileSessionRepository struct {
 	cache            map[string]*Session
 }
 
-func NewSessionRepo(workspace string) *FileSessionRepository {
+func NewFileSessionRepository(workspace string) *FileSessionRepository {
 	sessionDir := filepath.Join(workspace, "sessions")
 	_ = os.MkdirAll(sessionDir, 0755)
 

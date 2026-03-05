@@ -170,7 +170,7 @@ func TestNewSession_Defaults(t *testing.T) {
 
 func TestSessionManager_SaveLoadRoundTrip(t *testing.T) {
 	tmp := t.TempDir()
-	m := NewSessionRepo(tmp)
+	m := NewFileSessionRepository(tmp)
 
 	s := NewSession("telegram:chat-1")
 	s.CreatedAt = time.Date(2026, 3, 5, 12, 0, 0, 0, time.UTC)
@@ -209,7 +209,7 @@ func TestSessionManager_SaveLoadRoundTrip(t *testing.T) {
 
 func TestSessionManager_ListSessions_SortAndFallbackKey(t *testing.T) {
 	tmp := t.TempDir()
-	m := NewSessionRepo(tmp)
+	m := NewFileSessionRepository(tmp)
 
 	// Newer metadata with explicit key.
 	newerPath := filepath.Join(m.SessionDir, "telegram_100.jsonl")
@@ -243,7 +243,7 @@ func TestSessionManager_ListSessions_SortAndFallbackKey(t *testing.T) {
 
 func TestSessionManager_GetOrCreateAndInvalidate(t *testing.T) {
 	tmp := t.TempDir()
-	m := NewSessionRepo(tmp)
+	m := NewFileSessionRepository(tmp)
 
 	s1 := m.GetOrCreateSession("cli:local")
 	s1.AddMessage(RoleUser, "first", nil)
