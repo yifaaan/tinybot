@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 	"time"
+	"tinybot/internal/adapters/repository"
 	"tinybot/internal/adapters/provider"
-	"tinybot/internal/domain/model"
 	"tinybot/internal/usecase/chat"
 
 	"github.com/joho/godotenv"
@@ -41,7 +41,7 @@ func main() {
 		return
 	}
 
-	sessionRepo := model.NewFileSessionRepository(workspace)
+	sessionRepo := repository.NewFileSessionRepository(workspace)
 	uc, err := chat.NewUseCase(sessionRepo, llm)
 	if err != nil {
 		fmt.Println("failed to init chat usecase:", err)
