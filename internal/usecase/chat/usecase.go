@@ -2,10 +2,12 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+	"tinybot/internal/adapters/tool"
 	"tinybot/internal/domain/model"
 	"tinybot/internal/ports"
 )
@@ -25,13 +27,15 @@ import (
 //
 // 5. Sends responses back
 type UseCase struct {
-	sessionRepo ports.SessionRepository
-	llmClient   ports.LLMClient
+	sessionRepo   ports.SessionRepository
+	llmClient     ports.LLMClient
+	tools         tool.Registry
+	maxIterations int
 }
 
 // NewUseCase creates a new chat use case.
 // It returns an error if the session repository or llm client is nil.
-func NewUseCase(sessionRepo ports.SessionRepository, llmClient ports.LLMClient) (*UseCase, error) {
+func NewUseCase(sessionRepo ports.SessionRepository, llmClient ports.LLMClient, maxIterations int) (*UseCase, error) {
 	if sessionRepo == nil {
 		return nil, errors.New("chat usecase: session repository is required")
 	}
@@ -39,8 +43,9 @@ func NewUseCase(sessionRepo ports.SessionRepository, llmClient ports.LLMClient) 
 		return nil, errors.New("chat usecase: llm client is required")
 	}
 	return &UseCase{
-		sessionRepo: sessionRepo,
-		llmClient:   llmClient,
+		sessionRepo:   sessionRepo,
+		llmClient:     llmClient,
+		maxIterations: maxIterations,
 	}, nil
 }
 
@@ -67,24 +72,66 @@ func (uc *UseCase) ProcessMessage(ctx context.Context, msg model.InboundMessage)
 		return model.OutboundMessage{}, errors.New("chat usecase: failed to get or create session")
 	}
 
-	// TODO: Update message tool context
-
-	// TODO: Build initial messages (use get_history for LLM-formatted messages)
-
-	// TODO: Agent loop
-
 	// Save user message to session
 	session.AddMessage(model.RoleUser, msg.Content, nil)
 
-	// Call LLLM
+	// Call LLLM with history message
 	llmMessages := toLLMMessages(session.GetHistory(500))
-	resp, err := uc.llmClient.Chat(ctx, llmMessages)
-	if err != nil {
-		return model.OutboundMessage{}, errors.New("chat usecase: failed to chat with llm")
+
+	// TODO: Update message tool context
+
+	// Agent loop
+	var answer string
+	for iteration := 0; iteration < uc.maxIterations; iteration++ {
+		resp, err := uc.llmClient.Chat(ctx, llmMessages, uc.tools.GetDefinitions(), uc.maxIterations, 1)
+		if err != nil {
+			return model.OutboundMessage{}, fmt.Errorf("chat usecase llm chat: %w", err)
+		}
+		if resp.HasToolCalls() {
+			// Append assistant's message
+			toolCallMaps := make([]map[string]any, 0)
+			for _, tc := range resp.ToolCalls {
+				argJson, _ := json.Marshal(tc.Args)
+				toolCallMaps = append(toolCallMaps, map[string]any{
+					"id":   tc.ID,
+					"type": "function",
+					"function": map[string]any{
+						"name":      tc.Name,
+						"arguments": string(argJson),
+					},
+				})
+			}
+			llmMessages = append(llmMessages, map[string]any{
+				"role":       model.RoleAssistant,
+				"content":    resp.Content,
+				"tool_calls": toolCallMaps,
+			})
+
+			// Execute tool calls one by one
+			for _, tc := range resp.ToolCalls {
+				result, err := uc.tools.Execute(ctx, tc.Name, tc.Args)
+				if err != nil {
+					result = fmt.Sprintf("Error: %s", err.Error())
+				}
+				llmMessages = append(llmMessages, map[string]any{
+					"role":         model.RoleTool,
+					"tool_call_id": tc.ID,
+					"name":         tc.Name,
+					"content":      result,
+				})
+			}
+
+			// 执行完工具得到结果后，再次调用llm
+			continue
+		}
+
+		// 没有工具调用，得到答案
+		answer = strings.TrimSpace(resp.Content)
+		break
 	}
 
 	// Save assistant message to session
-	answer := strings.TrimSpace(resp.Content)
+
 	if answer == "" {
 		answer = "Sorry, I encountered an error calling the AI model."
 	}

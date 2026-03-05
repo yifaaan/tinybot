@@ -6,11 +6,7 @@ import (
 	"os"
 	"strings"
 	"time"
-	"tinybot/internal/adapters/repository"
-	"tinybot/internal/adapters/provider"
-	"tinybot/internal/usecase/chat"
-
-	"github.com/joho/godotenv"
+	"tinybot/internal/app"
 )
 
 const logo = `
@@ -22,29 +18,15 @@ const logo = `
 func main() {
 	fmt.Print(logo)
 
-	_ = godotenv.Load()
-
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: tinybot <your message>")
 		return
 	}
 
 	workspace, err := os.Getwd()
+	app, err := app.NewApp(workspace)
 	if err != nil {
-		fmt.Println("failed to get workspace:", err)
-		return
-	}
-
-	llm, err := provider.NewQwenClientFromEnv()
-	if err != nil {
-		fmt.Println("failed to init qwen client:", err)
-		return
-	}
-
-	sessionRepo := repository.NewFileSessionRepository(workspace)
-	uc, err := chat.NewUseCase(sessionRepo, llm)
-	if err != nil {
-		fmt.Println("failed to init chat usecase:", err)
+		fmt.Println("failed to create app:", err)
 		return
 	}
 
@@ -52,7 +34,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	reply, err := uc.ProcessDirect(ctx, "cli:direct", input)
+	reply, err := app.ChatUseCase.ProcessDirect(ctx, "cli:direct", input)
 	if err != nil {
 		fmt.Println("failed to process direct message:", err)
 		return

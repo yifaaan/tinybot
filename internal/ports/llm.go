@@ -6,5 +6,5 @@ import (
 )
 
 type LLMClient interface {
-	Chat(ctx context.Context, messages []map[string]any) (model.LLMResponse, error)
+	Chat(ctx context.Context, messages []map[string]any, tools []map[string]any, maxTokens int, temperature float32) (model.LLMResponse, error)
 }

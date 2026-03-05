@@ -72,7 +72,7 @@ func NewQwenClientFromEnv() (*QwenProvider, error) {
 //	model.LLMResponse
 //
 //	error
-func (q *QwenProvider) Chat(ctx context.Context, messages []map[string]any) (model.LLMResponse, error) {
+func (q *QwenProvider) Chat(ctx context.Context, messages []map[string]any, tools []map[string]any, maxTokens int, temperature float32) (model.LLMResponse, error) {
 	converted := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
 
 	for _, m := range messages {

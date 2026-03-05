@@ -1,11 +1,9 @@
 package model
 
-import "encoding/json"
-
 type ToolCall struct {
 	ID   string
 	Name string
-	Args json.RawMessage
+	Args map[string]any
 }
 
 type LLMResponse struct {
@@ -17,6 +15,6 @@ type LLMResponse struct {
 }
 
 // HasToolCalls reports whether the LLM response contains tool calls.
-func (r LLMResponse) HasToolCalls() bool {
+func (r *LLMResponse) HasToolCalls() bool {
 	return len(r.ToolCalls) > 0
 }

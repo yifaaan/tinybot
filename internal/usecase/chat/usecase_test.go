@@ -71,13 +71,13 @@ func TestNewUseCase(t *testing.T) {
 	repo := newFakeSessionRepository()
 	llm := fakeLLMClient{resp: model.LLMResponse{Content: "ok"}}
 
-	if _, err := NewUseCase(nil, llm); err == nil {
+	if _, err := NewUseCase(nil, llm, 20); err == nil {
 		t.Fatal("expected error when session repository is nil")
 	}
-	if _, err := NewUseCase(repo, nil); err == nil {
+	if _, err := NewUseCase(repo, nil, 20); err == nil {
 		t.Fatal("expected error when llm client is nil")
 	}
-	if _, err := NewUseCase(repo, llm); err != nil {
+	if _, err := NewUseCase(repo, llm, 20); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -153,7 +153,7 @@ func TestUseCase_ProcessMessage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := newFakeSessionRepository()
 			repo.saveErr = tt.saveErr
-			uc, err := NewUseCase(repo, fakeLLMClient{resp: tt.llmResp, err: tt.llmErr})
+			uc, err := NewUseCase(repo, fakeLLMClient{resp: tt.llmResp, err: tt.llmErr}, 20)
 			if err != nil {
 				t.Fatalf("NewUseCase error: %v", err)
 			}
@@ -189,7 +189,7 @@ func TestUseCase_ProcessMessage(t *testing.T) {
 
 func TestUseCase_ProcessDirect(t *testing.T) {
 	repo := newFakeSessionRepository()
-	uc, err := NewUseCase(repo, fakeLLMClient{resp: model.LLMResponse{Content: "done"}})
+	uc, err := NewUseCase(repo, fakeLLMClient{resp: model.LLMResponse{Content: "done"}}, 20)
 	if err != nil {
 		t.Fatalf("NewUseCase error: %v", err)
 	}
