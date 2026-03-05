@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -40,11 +41,12 @@ type Session struct {
 }
 
 func NewSession(key string) *Session {
+	now := time.Now()
 	return &Session{
 		Key:       key,
 		Messages:  make([]*Message, 0),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt: now,
+		UpdatedAt: now,
 		Metadata:  make(map[string]any),
 	}
 }
@@ -150,6 +152,7 @@ func (m *FileSessionRepository) GetOrCreateSession(key string) *Session {
 
 	s, _ := m.LoadSession(key)
 	if s == nil {
+		slog.Info("creating new session", "key", key)
 		s = NewSession(key)
 	}
 	m.cache[key] = s

@@ -20,7 +20,7 @@ const logo = `
 `
 
 func main() {
-	fmt.Println(logo)
+	fmt.Print(logo)
 
 	_ = godotenv.Load()
 

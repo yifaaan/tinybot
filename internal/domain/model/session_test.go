@@ -168,7 +168,7 @@ func TestNewSession_Defaults(t *testing.T) {
 	}
 }
 
-func TestSessionManager_SaveLoadRoundTrip(t *testing.T) {
+func TestSessionRepository_SaveLoadRoundTrip(t *testing.T) {
 	tmp := t.TempDir()
 	m := NewFileSessionRepository(tmp)
 
@@ -207,7 +207,7 @@ func TestSessionManager_SaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSessionManager_ListSessions_SortAndFallbackKey(t *testing.T) {
+func TestSessionRepository_ListSessions_SortAndFallbackKey(t *testing.T) {
 	tmp := t.TempDir()
 	m := NewFileSessionRepository(tmp)
 
@@ -241,7 +241,7 @@ func TestSessionManager_ListSessions_SortAndFallbackKey(t *testing.T) {
 	}
 }
 
-func TestSessionManager_GetOrCreateAndInvalidate(t *testing.T) {
+func TestSessionRepository_GetOrCreateAndInvalidate(t *testing.T) {
 	tmp := t.TempDir()
 	m := NewFileSessionRepository(tmp)
 

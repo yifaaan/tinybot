@@ -16,7 +16,7 @@ func TestLLMResponse_HasToolCalls(t *testing.T) {
 		{
 			name: "with tool calls",
 			resp: LLMResponse{
-				ToolCalls: []ToolCall{{ID: "1", Name: "search"}},
+				ToolCalls: []*ToolCall{{ID: "1", Name: "search"}},
 			},
 			want: true,
 		},
