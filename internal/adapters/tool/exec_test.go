@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -31,24 +32,24 @@ func TestExecTool_Execute(t *testing.T) {
 	t.Run("command failed", func(t *testing.T) {
 		tool := NewExecTool(5, "")
 		cmd := "not a real command"
-		out, err := tool.Execute(context.Background(), map[string]any{"command": cmd})
-		if err != nil {
+		_, err := tool.Execute(context.Background(), map[string]any{"command": cmd})
+		if err == nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !strings.Contains(strings.ToLower(out), "exit error") && !strings.Contains(strings.ToLower(out), "stderr") {
-			t.Fatalf("unexpected failure output: %q", out)
+		if !strings.Contains(err.Error(), "exec tool") {
+			t.Errorf("unexpected error message: %v", err)
 		}
 	})
 
-	// t.Run("timeout", func(t *testing.T) {
-	// 	tool := NewExecTool(1, "")
-	// 	cmd := "sleep 3"
-	// 	if runtime.GOOS == "windows" {
-	// 		cmd = "timeout /t 5 /nobreak >nul"
-	// 	}
-	// 	_, err := tool.Execute(context.Background(), map[string]any{"command": cmd})
-	// 	if err == nil {
-	// 		t.Fatalf("exepeted timeout error, got nil")
-	// 	}
-	// })
+	t.Run("timeout", func(t *testing.T) {
+		tool := NewExecTool(1, "")
+		cmd := "sleep 3"
+		if runtime.GOOS == "windows" {
+			cmd = "ping 127.0.0.1 -n 4 > nul"
+		}
+		_, err := tool.Execute(context.Background(), map[string]any{"command": cmd})
+		if err == nil {
+			t.Fatalf("exepeted timeout error, got nil")
+		}
+	})
 }

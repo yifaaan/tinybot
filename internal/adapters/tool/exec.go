@@ -84,7 +84,7 @@ func (t *ExecTool) Execute(ctx context.Context, params map[string]any) (string, 
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", errors.New("exec tool: command timed out")
 		}
-		parts = append(parts, fmt.Sprintf("Exit error: %s", err.Error()))
+		return "", fmt.Errorf("exec tool: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
 	}
 
 	result := "(no output)"
