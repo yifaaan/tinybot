@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"tinybot/internal/adapters/tool"
 	"tinybot/internal/domain/model"
 	"tinybot/internal/ports"
 )
@@ -29,24 +28,38 @@ import (
 type UseCase struct {
 	sessionRepo   ports.SessionRepository
 	llmClient     ports.LLMClient
-	tools         tool.Registry
+	tools         ports.ToolRegistry
+	contexts      *ContextBuilder
 	maxIterations int
 }
 
 // NewUseCase creates a new chat use case.
 // It returns an error if the session repository or llm client is nil.
-func NewUseCase(sessionRepo ports.SessionRepository, llmClient ports.LLMClient, maxIterations int) (*UseCase, error) {
+func NewUseCase(sessionRepo ports.SessionRepository, llmClient ports.LLMClient, tools ports.ToolRegistry, maxIterations int) (*UseCase, error) {
 	if sessionRepo == nil {
 		return nil, errors.New("chat usecase: session repository is required")
 	}
 	if llmClient == nil {
 		return nil, errors.New("chat usecase: llm client is required")
 	}
+	if tools == nil {
+		return nil, errors.New("chat usecase: tool registry is required")
+	}
+
 	return &UseCase{
 		sessionRepo:   sessionRepo,
 		llmClient:     llmClient,
+		tools:         tools,
+		contexts:      NewContextBuilder(""),
 		maxIterations: maxIterations,
 	}, nil
+}
+
+func (uc *UseCase) SetContextBuilder(builder *ContextBuilder) {
+	if builder == nil {
+		return
+	}
+	uc.contexts = builder
 }
 
 // ProcessMessage processes a single inbound message and returns the response.
@@ -75,32 +88,34 @@ func (uc *UseCase) ProcessMessage(ctx context.Context, msg model.InboundMessage)
 	// Save user message to session
 	session.AddMessage(model.RoleUser, msg.Content, nil)
 
-	// Call LLLM with history message
-	llmMessages := toLLMMessages(session.GetHistory(500))
-
-	// TODO: Update message tool context
+	// Build the LLM input with a system prompt and recent history.
+	llmMessages := uc.buildLLMMessages(session.GetHistory(500), msg.Content, nil)
 
 	// Agent loop
 	var answer string
 	for iteration := 0; iteration < uc.maxIterations; iteration++ {
+		// 第一次迭代调用时，传入所有工具的定义
 		resp, err := uc.llmClient.Chat(ctx, llmMessages, uc.tools.GetDefinitions(), uc.maxIterations, 1)
 		if err != nil {
 			return model.OutboundMessage{}, fmt.Errorf("chat usecase llm chat: %w", err)
 		}
+		// 有工具调用，需要执行工具
 		if resp.HasToolCalls() {
 			// Append assistant's message
-			toolCallMaps := make([]map[string]any, 0)
+			toolCallMaps := make([]map[string]any, len(resp.ToolCalls))
 			for _, tc := range resp.ToolCalls {
 				argJson, _ := json.Marshal(tc.Args)
+				// 工具调用的定义
 				toolCallMaps = append(toolCallMaps, map[string]any{
 					"id":   tc.ID,
 					"type": "function",
 					"function": map[string]any{
 						"name":      tc.Name,
-						"arguments": string(argJson),
+						"arguments": string(argJson), // arguments is a json string
 					},
 				})
 			}
+			// 添加到历史消息中
 			llmMessages = append(llmMessages, map[string]any{
 				"role":       model.RoleAssistant,
 				"content":    resp.Content,
@@ -220,4 +235,12 @@ func toLLMMessages(history []*model.Message) []map[string]any {
 		out = append(out, item)
 	}
 	return out
+}
+
+func (uc *UseCase) buildLLMMessages(history []*model.Message, currentMessage string, skillNames []string) []map[string]any {
+	// TODO:skill
+	if uc.contexts == nil {
+		return toLLMMessages(history)
+	}
+	return uc.contexts.BuildMessages(history, currentMessage, skillNames)
 }

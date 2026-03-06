@@ -13,6 +13,24 @@ type ToolSpec struct {
 
 // ToSchema converts the tool spec to an OpenAI function schema format.
 func (t ToolSpec) ToSchema() map[string]any {
+	// Tool definition in OpenAI function schema format:
+	//
+	// {
+	// 	"type": "function",
+	// 	"function": {
+	// 		"name": "search",
+	// 		"description": "Search the web for information",
+	// 		"parameters": json.RawMessage(`{
+	// 			"type": "object",
+	// 			"properties": {
+	// 				"n": {
+	// 					"type": "number",
+	// 					"description": "The number of results to return"
+	// 				}
+	// 			}
+	// 		}`)
+	// 	}
+	// }
 	return map[string]any{
 		"type": "function",
 		"function": map[string]any{

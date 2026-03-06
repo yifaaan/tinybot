@@ -10,6 +10,12 @@ type Registry struct {
 	tools map[string]ports.Tool
 }
 
+func NewRegistry() *Registry {
+	return &Registry{
+		tools: make(map[string]ports.Tool),
+	}
+}
+
 // Register a tool in the registry.
 func (r *Registry) Register(tool ports.Tool) {
 	if _, exists := r.tools[tool.Spec().Name]; exists {
