@@ -23,13 +23,15 @@ var defaultBootstrapFiles = []string{
 // into the fuller nanobot-style prompt builder later.
 type ContextBuilder struct {
 	workspacePath string
-	memory        *workspace.MemoryStore // for future use when we add memory context(Long-term and Today) to the system prompt
+	memory        *workspace.MemoryStore  // for future use when we add memory context(Long-term and Today) to the system prompt
+	skills        *workspace.SkillsLoader // for future use when we add skills context to the system prompt and messages
 }
 
 func NewContextBuilder(wp string) *ContextBuilder {
 	return &ContextBuilder{
 		workspacePath: strings.TrimSpace(wp),
 		memory:        workspace.NewMemoryStore(wp),
+		skills:        workspace.NewSkillsLoader(wp, ""),
 	}
 }
 
@@ -47,7 +49,7 @@ func (b *ContextBuilder) BuildMessages(history []*model.Message, currentMessage 
 	messages := make([]map[string]any, 0, len(history)+2)
 
 	// System prompt
-	systemPrompt := b.BuildSystemPrompt()
+	systemPrompt := b.BuildSystemPrompt(skillNames)
 	messages = append(messages, map[string]any{
 		"role":    "system",
 		"content": systemPrompt,
@@ -115,7 +117,7 @@ func (b *ContextBuilder) AddAssistantMessage(messages []map[string]any, content 
 // - refine the identity prompt
 // - add memory and skills sections
 // - align wording with the original nanobot ContextBuilder
-func (b *ContextBuilder) BuildSystemPrompt() string {
+func (b *ContextBuilder) BuildSystemPrompt(skillNames []string) string {
 	// Core identity
 	parts := []string{
 		b.renderIdentity(),
@@ -135,7 +137,20 @@ func (b *ContextBuilder) BuildSystemPrompt() string {
 	if memoryContext != "" {
 		parts = append(parts, fmt.Sprintf("## Memory\n%s", memoryContext))
 	}
-	// TODO: add skills context
+	// Skills - prograssive loading
+	// TODO:1.Always-loaded skills: include full content
+
+	// 2.Available skills: only show summary (agent uses read_file to load)
+	skillsSummary, err := b.skills.BuildSummary()
+	if err == nil && skillsSummary != "" {
+		parts = append(parts, fmt.Sprintf(
+			`# Skills
+
+The following skills extend your capabilities. To use a skill, read its SKILL.md file using the read_file tool.
+Skills with available="false" need dependencies installed first - you can try installing them with apt/brew.
+
+%s`, skillsSummary))
+	}
 
 	return strings.Join(parts, "\n\n--\n\n")
 }
