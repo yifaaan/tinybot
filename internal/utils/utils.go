@@ -1,9 +1,10 @@
-package tool
+package utils
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ExpandUser expands the user path to the absolute path.
@@ -25,4 +26,16 @@ func ExpandUser(path string) (string, error) {
 	}
 
 	return path, nil
+}
+
+// Ensure a directory exists, creating it if necessary.
+func EnsureDir(path string) (string, error) {
+	if err := os.MkdirAll(path, 0755); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func TodayDate() string {
+	return time.Now().In(time.Local).Format("2026-03-07")
 }

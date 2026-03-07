@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"tinybot/internal/adapters/workspace"
 	"tinybot/internal/domain/model"
 )
 
@@ -21,12 +22,14 @@ var defaultBootstrapFiles = []string{
 // This is intentionally small for now. It gives you a stable place to grow
 // into the fuller nanobot-style prompt builder later.
 type ContextBuilder struct {
-	workspace string
+	workspacePath string
+	memory        *workspace.MemoryStore // for future use when we add memory context(Long-term and Today) to the system prompt
 }
 
-func NewContextBuilder(workspace string) *ContextBuilder {
+func NewContextBuilder(wp string) *ContextBuilder {
 	return &ContextBuilder{
-		workspace: strings.TrimSpace(workspace),
+		workspacePath: strings.TrimSpace(wp),
+		memory:        workspace.NewMemoryStore(wp),
 	}
 }
 
@@ -127,8 +130,11 @@ func (b *ContextBuilder) BuildSystemPrompt() string {
 		parts = append(parts, docs)
 	}
 
-	// TODO: add memory context
-
+	// Add memory context
+	memoryContext := b.memory.BuildContext()
+	if memoryContext != "" {
+		parts = append(parts, fmt.Sprintf("## Memory\n%s", memoryContext))
+	}
 	// TODO: add skills context
 
 	return strings.Join(parts, "\n\n--\n\n")
@@ -136,7 +142,7 @@ func (b *ContextBuilder) BuildSystemPrompt() string {
 
 // collectBootstrapDocs collects all bootstrap files in the workspace.
 func (b *ContextBuilder) collectBootstrapDocs() string {
-	if b.workspace == "" {
+	if b.workspacePath == "" {
 		return ""
 	}
 
@@ -154,11 +160,11 @@ func (b *ContextBuilder) collectBootstrapDocs() string {
 
 // readWorkspaceFile reads a file from the workspace.
 func (b *ContextBuilder) readWorkspaceFile(name string) string {
-	if b.workspace == "" {
+	if b.workspacePath == "" {
 		return ""
 	}
 
-	path := filepath.Join(b.workspace, name)
+	path := filepath.Join(b.workspacePath, name)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
@@ -167,9 +173,9 @@ func (b *ContextBuilder) readWorkspaceFile(name string) string {
 }
 
 func (b *ContextBuilder) getIdentity() string {
-	return `# nanobot 🐈
+	return `# tinybot 🐈
 
-You are nanobot, a helpful AI assistant. You have access to tools that allow you to:
+You are tinybot, a helpful AI assistant. You have access to tools that allow you to:
 - Read, write, and edit files
 - Execute shell commands
 - Search the web and fetch web pages
@@ -193,12 +199,12 @@ When remembering something, write to {workspace_path}/memory/MEMORY.md`
 }
 
 func (b *ContextBuilder) renderIdentity() string {
-	workspace := b.workspace
-	if workspace == "" {
-		workspace = "."
+	path := b.workspacePath
+	if path == "" {
+		path = "."
 	}
 	return strings.NewReplacer(
 		"{now}", time.Now().Format("2006-01-02 15:04:05"),
-		"{workspace_path}", workspace,
+		"{workspace_path}", path,
 	).Replace(b.getIdentity())
 }

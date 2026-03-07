@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"tinybot/internal/ports"
+	"tinybot/internal/utils"
 )
 
 // ListDirTool is tool to list the contents of a directory.
@@ -43,7 +44,7 @@ func (t *ListDirTool) Execute(ctx context.Context, params map[string]any) (strin
 	if path == "" {
 		return "", errors.New("list dir tool: `path` is required")
 	}
-	path, err := ExpandUser(path)
+	path, err := utils.ExpandUser(path)
 	if err != nil {
 		return "", fmt.Errorf("list dir tool: %w", err)
 	}

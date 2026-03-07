@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"tinybot/internal/utils"
 )
 
 // Memory system for the agent.
@@ -18,7 +19,7 @@ type MemoryStore struct {
 }
 
 func NewMemoryStore(workspace string) *MemoryStore {
-	memoryDir, err := ensureDir(filepath.Join(workspace, "memory"))
+	memoryDir, err := utils.EnsureDir(filepath.Join(workspace, "memory"))
 	if err != nil {
 		panic(err)
 	}
@@ -36,7 +37,7 @@ func (s *MemoryStore) LongTermPath() string {
 
 // TodayPath return path to memory/YYYY-MM-DD.md for today
 func (s *MemoryStore) TodayPath() string {
-	filename := todayDate() + ".md"
+	filename := utils.TodayDate() + ".md"
 	path := filepath.Join(s.memoryDir, filename)
 	return path
 }

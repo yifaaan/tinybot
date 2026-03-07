@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"tinybot/internal/utils"
 )
 
 func writeTestFile(t *testing.T, path, content string) {
@@ -18,7 +19,7 @@ func writeTestFile(t *testing.T, path, content string) {
 }
 
 func todayFilePath(root string) string {
-	return filepath.Join(root, "memory", todayDate()+".md")
+	return filepath.Join(root, "memory", utils.TodayDate()+".md")
 }
 
 func TestNewMemoryStore_CreatesMemoryDirAndPaths(t *testing.T) {
