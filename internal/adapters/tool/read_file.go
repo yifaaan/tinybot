@@ -43,6 +43,10 @@ func (t *ReadFileTool) Execute(ctx context.Context, params map[string]any) (stri
 	if strings.TrimSpace(path) == "" {
 		return "", errors.New("read file tool: `path` is required")
 	}
+	path, err := ExpandUser(path)
+	if err != nil {
+		return "", fmt.Errorf("read file tool: %w", err)
+	}
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(t.workspace, path)
 	}

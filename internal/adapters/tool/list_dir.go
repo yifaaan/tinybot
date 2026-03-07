@@ -43,6 +43,10 @@ func (t *ListDirTool) Execute(ctx context.Context, params map[string]any) (strin
 	if path == "" {
 		return "", errors.New("list dir tool: `path` is required")
 	}
+	path, err := ExpandUser(path)
+	if err != nil {
+		return "", fmt.Errorf("list dir tool: %w", err)
+	}
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(t.workspace, path)
 	}

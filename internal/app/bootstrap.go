@@ -36,9 +36,17 @@ func NewApp(workspace string) (*App, error) {
 	readFileTool := tool.NewReadFileTool(workspace)
 	toolRegistry.Register(readFileTool)
 
+	// write file tool
+	writeFileTool := tool.NewWriteFileTool(workspace)
+	toolRegistry.Register(writeFileTool)
+
 	// list dir tool
 	listDirTool := tool.NewListDirTool(workspace)
 	toolRegistry.Register(listDirTool)
+
+	// edit file tool
+	editFileTool := tool.NewEditFileTool(workspace)
+	toolRegistry.Register(editFileTool)
 
 	chatUseCase, err := chat.NewUseCase(sessionRepo, llm, toolRegistry, 20)
 	if err != nil {
