@@ -74,13 +74,12 @@ func (b *ContextBuilder) BuildMessages(history []*model.Message, currentMessage 
 //
 //	Updated message list.
 func (b *ContextBuilder) AddToolResult(messages []map[string]any, toolCallID string, toolName string, result string) []map[string]any {
-	messages = append(messages, map[string]any{
+	return append(messages, map[string]any{
 		"role":         "tool",
 		"tool_call_id": toolCallID,
 		"name":         toolName,
 		"content":      result,
 	})
-	return messages
 }
 
 // AddAssistantMessage adds an assistant message to the message list.

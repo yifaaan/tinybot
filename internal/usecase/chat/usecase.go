@@ -31,6 +31,7 @@ type UseCase struct {
 	tools         ports.ToolRegistry
 	contexts      *ContextBuilder
 	maxIterations int
+	maxTokens     int
 }
 
 // NewUseCase creates a new chat use case.
@@ -52,6 +53,7 @@ func NewUseCase(sessionRepo ports.SessionRepository, llmClient ports.LLMClient, 
 		tools:         tools,
 		contexts:      NewContextBuilder(""),
 		maxIterations: maxIterations,
+		maxTokens:     8192,
 	}, nil
 }
 
@@ -60,6 +62,12 @@ func (uc *UseCase) SetContextBuilder(builder *ContextBuilder) {
 		return
 	}
 	uc.contexts = builder
+}
+
+type traceMessage struct {
+	role    string
+	content string
+	attrs   map[string]any
 }
 
 // ProcessMessage processes a single inbound message and returns the response.
@@ -85,24 +93,27 @@ func (uc *UseCase) ProcessMessage(ctx context.Context, msg model.InboundMessage)
 		return model.OutboundMessage{}, errors.New("chat usecase: failed to get or create session")
 	}
 
-	// Save user message to session
-	session.AddMessage(model.RoleUser, msg.Content, nil)
-
 	// Build the LLM input with a system prompt and recent history.
 	llmMessages := uc.buildLLMMessages(session.GetHistory(500), msg.Content, nil)
+	trace := []traceMessage{
+		{
+			role:    model.RoleUser,
+			content: msg.Content,
+		},
+	}
 
 	// Agent loop
 	var answer string
 	for iteration := 0; iteration < uc.maxIterations; iteration++ {
 		// 第一次迭代调用时，传入所有工具的定义
-		resp, err := uc.llmClient.Chat(ctx, llmMessages, uc.tools.GetDefinitions(), uc.maxIterations, 1)
+		resp, err := uc.llmClient.Chat(ctx, llmMessages, uc.tools.GetDefinitions(), uc.maxTokens, 1)
 		if err != nil {
 			return model.OutboundMessage{}, fmt.Errorf("chat usecase llm chat: %w", err)
 		}
 		// 有工具调用，需要执行工具
 		if resp.HasToolCalls() {
 			// Append assistant's message
-			toolCallMaps := make([]map[string]any, len(resp.ToolCalls))
+			toolCallMaps := make([]map[string]any, 0, len(resp.ToolCalls))
 			for _, tc := range resp.ToolCalls {
 				argJson, _ := json.Marshal(tc.Args)
 				// 工具调用的定义
@@ -116,10 +127,14 @@ func (uc *UseCase) ProcessMessage(ctx context.Context, msg model.InboundMessage)
 				})
 			}
 			// 添加到历史消息中
-			llmMessages = append(llmMessages, map[string]any{
-				"role":       model.RoleAssistant,
-				"content":    resp.Content,
-				"tool_calls": toolCallMaps,
+			llmMessages = uc.contexts.AddAssistantMessage(llmMessages, resp.Content, toolCallMaps)
+
+			trace = append(trace, traceMessage{
+				role:    model.RoleAssistant,
+				content: strings.TrimSpace(resp.Content),
+				attrs: map[string]any{
+					"tool_calls": toolCallMaps,
+				},
 			})
 
 			// Execute tool calls one by one
@@ -128,11 +143,15 @@ func (uc *UseCase) ProcessMessage(ctx context.Context, msg model.InboundMessage)
 				if err != nil {
 					result = fmt.Sprintf("Error: %s", err.Error())
 				}
-				llmMessages = append(llmMessages, map[string]any{
-					"role":         model.RoleTool,
-					"tool_call_id": tc.ID,
-					"name":         tc.Name,
-					"content":      result,
+				llmMessages = uc.contexts.AddToolResult(llmMessages, tc.ID, tc.Name, result)
+
+				trace = append(trace, traceMessage{
+					role:    model.RoleTool,
+					content: result,
+					attrs: map[string]any{
+						"tool_call_id": tc.ID,
+						"name":         tc.Name,
+					},
 				})
 			}
 
@@ -145,12 +164,18 @@ func (uc *UseCase) ProcessMessage(ctx context.Context, msg model.InboundMessage)
 		break
 	}
 
-	// Save assistant message to session
-
 	if answer == "" {
 		answer = "Sorry, I encountered an error calling the AI model."
 	}
-	session.AddMessage(model.RoleAssistant, answer, nil)
+
+	trace = append(trace, traceMessage{
+		role:    model.RoleAssistant,
+		content: answer,
+	})
+
+	for _, item := range trace {
+		session.AddMessage(item.role, item.content, item.attrs)
+	}
 
 	// Save session
 	if err := uc.sessionRepo.SaveSession(session); err != nil {
@@ -204,7 +229,7 @@ func (uc *UseCase) ProcessDirect(ctx context.Context, sessionKey string, content
 	}
 	resp, err := uc.ProcessMessage(ctx, msg)
 	if err != nil {
-		return "", errors.New("chat usecase: failed to process message")
+		return "", fmt.Errorf("chat usecase: %w", err)
 	}
 	content = strings.TrimSpace(resp.Content)
 	if content == "" {
@@ -240,7 +265,12 @@ func toLLMMessages(history []*model.Message) []map[string]any {
 func (uc *UseCase) buildLLMMessages(history []*model.Message, currentMessage string, skillNames []string) []map[string]any {
 	// TODO:skill
 	if uc.contexts == nil {
-		return toLLMMessages(history)
+		his := toLLMMessages(history)
+		his = append(his, map[string]any{
+			"role":    "user",
+			"content": currentMessage,
+		})
+		return his
 	}
 	return uc.contexts.BuildMessages(history, currentMessage, skillNames)
 }

@@ -64,11 +64,27 @@ type fakeLLMClient struct {
 	resp             model.LLMResponse
 	err              error
 	capturedMessages *[]map[string]any
+	state            *fakeLLMState
 }
 
 func (f fakeLLMClient) Chat(ctx context.Context, messages []map[string]any, tools []map[string]any, maxTokens int, temperature float32) (model.LLMResponse, error) {
 	if f.capturedMessages != nil {
 		*f.capturedMessages = cloneMessageMaps(messages)
+	}
+	if f.state != nil {
+		f.state.calls = append(f.state.calls, fakeLLMCall{
+			messages:    cloneMessageMaps(messages),
+			tools:       cloneMessageMaps(tools),
+			maxTokens:   maxTokens,
+			temperature: temperature,
+		})
+		idx := len(f.state.calls) - 1
+		if idx < len(f.state.errs) && f.state.errs[idx] != nil {
+			return model.LLMResponse{}, f.state.errs[idx]
+		}
+		if idx < len(f.state.responses) {
+			return f.state.responses[idx], nil
+		}
 	}
 	if f.err != nil {
 		return model.LLMResponse{}, f.err
@@ -76,10 +92,31 @@ func (f fakeLLMClient) Chat(ctx context.Context, messages []map[string]any, tool
 	return f.resp, nil
 }
 
+type fakeLLMCall struct {
+	messages    []map[string]any
+	tools       []map[string]any
+	maxTokens   int
+	temperature float32
+}
+
+type fakeLLMState struct {
+	responses []model.LLMResponse
+	errs      []error
+	calls     []fakeLLMCall
+}
+
+func newFakeLLMSequence(responses ...model.LLMResponse) (*fakeLLMClient, *fakeLLMState) {
+	state := &fakeLLMState{
+		responses: append([]model.LLMResponse(nil), responses...),
+	}
+	return &fakeLLMClient{state: state}, state
+}
+
 type fakeToolRegistry struct {
 	definitions []map[string]any
 	results     map[string]string
 	err         error
+	executions  []fakeToolExecution
 }
 
 func newFakeToolRegistry() *fakeToolRegistry {
@@ -105,6 +142,10 @@ func (f *fakeToolRegistry) GetDefinitions() []map[string]any {
 }
 
 func (f *fakeToolRegistry) Execute(ctx context.Context, name string, params map[string]any) (string, error) {
+	f.executions = append(f.executions, fakeToolExecution{
+		name:   name,
+		params: cloneMap(params),
+	})
 	if f.err != nil {
 		return "", f.err
 	}
@@ -112,6 +153,22 @@ func (f *fakeToolRegistry) Execute(ctx context.Context, name string, params map[
 		return result, nil
 	}
 	return "", fmt.Errorf("tool %s not found", name)
+}
+
+type fakeToolExecution struct {
+	name   string
+	params map[string]any
+}
+
+func cloneMap(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func cloneMessageMaps(in []map[string]any) []map[string]any {
@@ -318,6 +375,209 @@ func TestUseCase_ProcessMessage_UsesContextBuilder(t *testing.T) {
 	}
 }
 
+func TestUseCase_ProcessMessage_DoesNotDuplicateCurrentUserMessage(t *testing.T) {
+	var captured []map[string]any
+	repo := newFakeSessionRepository()
+	llm := fakeLLMClient{
+		resp:             model.LLMResponse{Content: "ok"},
+		capturedMessages: &captured,
+	}
+	uc, err := NewUseCase(repo, llm, newFakeToolRegistry(), 20)
+	if err != nil {
+		t.Fatalf("NewUseCase error: %v", err)
+	}
+
+	msg := model.InboundMessage{
+		ID:      "m-no-dup",
+		Channel: model.ChannelCLI,
+		ChatID:  "local",
+		Content: "unique current message",
+	}
+	_, err = uc.ProcessMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("ProcessMessage error: %v", err)
+	}
+
+	count := 0
+	for _, item := range captured {
+		role, _ := item["role"].(string)
+		content, _ := item["content"].(string)
+		if role == model.RoleUser && content == msg.Content {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("current user message count = %d, want 1; messages = %#v", count, captured)
+	}
+}
+
+func TestUseCase_ProcessMessage_UsesMaxTokensSetting(t *testing.T) {
+	llm, state := newFakeLLMSequence(model.LLMResponse{Content: "ok"})
+	repo := newFakeSessionRepository()
+	uc, err := NewUseCase(repo, llm, newFakeToolRegistry(), 7)
+	if err != nil {
+		t.Fatalf("NewUseCase error: %v", err)
+	}
+	uc.maxTokens = 321
+
+	_, err = uc.ProcessMessage(context.Background(), model.InboundMessage{
+		ID:      "m-max-tokens",
+		Channel: model.ChannelCLI,
+		ChatID:  "local",
+		Content: "hello",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage error: %v", err)
+	}
+
+	if len(state.calls) != 1 {
+		t.Fatalf("llm call count = %d, want 1", len(state.calls))
+	}
+	if state.calls[0].maxTokens != uc.maxTokens {
+		t.Fatalf("maxTokens = %d, want %d", state.calls[0].maxTokens, uc.maxTokens)
+	}
+}
+
+func TestUseCase_ProcessMessage_ToolLoopRegression(t *testing.T) {
+	llm, state := newFakeLLMSequence(
+		model.LLMResponse{
+			Content: "Let me inspect the file.",
+			ToolCalls: []*model.ToolCall{
+				{
+					ID:   "call-1",
+					Name: "read_file",
+					Args: map[string]any{"path": "README.md"},
+				},
+			},
+		},
+		model.LLMResponse{
+			Content: "Done.",
+		},
+	)
+	repo := newFakeSessionRepository()
+	tools := newFakeToolRegistry()
+	tools.results["read_file"] = "README content"
+	tools.definitions = []map[string]any{
+		{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "read_file",
+				"description": "Read a file",
+				"parameters": map[string]any{
+					"type": "object",
+				},
+			},
+		},
+	}
+
+	uc, err := NewUseCase(repo, llm, tools, 20)
+	if err != nil {
+		t.Fatalf("NewUseCase error: %v", err)
+	}
+
+	msg := model.InboundMessage{
+		ID:      "m-tool-loop",
+		Channel: model.ChannelCLI,
+		ChatID:  "local",
+		Content: "read the file",
+	}
+	out, err := uc.ProcessMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("ProcessMessage error: %v", err)
+	}
+	if out.Content != "Done." {
+		t.Fatalf("out.Content = %q, want %q", out.Content, "Done.")
+	}
+
+	if len(state.calls) != 2 {
+		t.Fatalf("llm call count = %d, want 2", len(state.calls))
+	}
+	if len(tools.executions) != 1 {
+		t.Fatalf("tool executions = %d, want 1", len(tools.executions))
+	}
+	if tools.executions[0].name != "read_file" {
+		t.Fatalf("executed tool = %q, want %q", tools.executions[0].name, "read_file")
+	}
+
+	secondCall := state.calls[1].messages
+	if !hasAssistantToolCallMessage(secondCall, "call-1", "read_file") {
+		t.Fatalf("second llm call missing assistant tool-call trace: %#v", secondCall)
+	}
+	if !hasToolResultMessage(secondCall, "call-1", "read_file", "README content") {
+		t.Fatalf("second llm call missing tool result trace: %#v", secondCall)
+	}
+
+	session := repo.sessions[msg.SessionKey()]
+	if session == nil {
+		t.Fatalf("session %q not found", msg.SessionKey())
+	}
+	if len(session.Messages) != 4 {
+		t.Fatalf("session message len = %d, want 4", len(session.Messages))
+	}
+	if session.Messages[1].Role != model.RoleAssistant || session.Messages[1].ToolCalls == nil {
+		t.Fatalf("assistant tool-call trace not saved correctly: %#v", session.Messages[1])
+	}
+	if session.Messages[2].Role != model.RoleTool || session.Messages[2].ToolCallID != "call-1" {
+		t.Fatalf("tool result trace not saved correctly: %#v", session.Messages[2])
+	}
+}
+
+func hasAssistantToolCallMessage(messages []map[string]any, callID string, toolName string) bool {
+	for _, item := range messages {
+		role, _ := item["role"].(string)
+		if role != model.RoleAssistant {
+			continue
+		}
+		toolCalls, ok := item["tool_calls"].([]map[string]any)
+		if !ok {
+			if raw, ok := item["tool_calls"].([]any); ok {
+				for _, candidate := range raw {
+					call, _ := candidate.(map[string]any)
+					if hasMatchingToolCall(call, callID, toolName) {
+						return true
+					}
+				}
+			}
+			continue
+		}
+		for _, call := range toolCalls {
+			if hasMatchingToolCall(call, callID, toolName) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasMatchingToolCall(call map[string]any, callID string, toolName string) bool {
+	if call == nil {
+		return false
+	}
+	id, _ := call["id"].(string)
+	if id != callID {
+		return false
+	}
+	function, _ := call["function"].(map[string]any)
+	name, _ := function["name"].(string)
+	return name == toolName
+}
+
+func hasToolResultMessage(messages []map[string]any, callID string, toolName string, content string) bool {
+	for _, item := range messages {
+		role, _ := item["role"].(string)
+		if role != model.RoleTool {
+			continue
+		}
+		toolCallID, _ := item["tool_call_id"].(string)
+		name, _ := item["name"].(string)
+		body, _ := item["content"].(string)
+		if toolCallID == callID && name == toolName && body == content {
+			return true
+		}
+	}
+	return false
+}
+
 func TestToLLMMessages(t *testing.T) {
 	now := model.NewSession("tmp").CreatedAt
 	history := []*model.Message{
@@ -349,5 +609,45 @@ func TestToLLMMessages(t *testing.T) {
 	}
 	if got[1]["name"] != "search" {
 		t.Fatalf("name = %#v, want %q", got[1]["name"], "search")
+	}
+}
+
+func TestToLLMMessages_AssistantToolCalls(t *testing.T) {
+	now := model.NewSession("tmp").CreatedAt
+	toolCalls := []map[string]any{
+		{
+			"id":   "call-1",
+			"type": "function",
+			"function": map[string]any{
+				"name":      "read_file",
+				"arguments": `{"path":"README.md"}`,
+			},
+		},
+	}
+
+	got := toLLMMessages([]*model.Message{
+		{
+			Role:      model.RoleAssistant,
+			Content:   "Let me inspect that.",
+			CreatedAt: now,
+			ToolCalls: toolCalls,
+		},
+	})
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1", len(got))
+	}
+	if got[0]["role"] != model.RoleAssistant {
+		t.Fatalf("role = %#v, want %q", got[0]["role"], model.RoleAssistant)
+	}
+	recovered, ok := got[0]["tool_calls"].([]map[string]any)
+	if !ok {
+		t.Fatalf("tool_calls type = %T, want []map[string]any", got[0]["tool_calls"])
+	}
+	if len(recovered) != 1 {
+		t.Fatalf("tool_calls len = %d, want 1", len(recovered))
+	}
+	function, _ := recovered[0]["function"].(map[string]any)
+	if function["name"] != "read_file" {
+		t.Fatalf("function name = %#v, want %q", function["name"], "read_file")
 	}
 }
