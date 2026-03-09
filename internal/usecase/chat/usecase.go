@@ -95,6 +95,8 @@ func (uc *UseCase) ProcessMessage(ctx context.Context, msg model.InboundMessage)
 
 	// Build the LLM input with a system prompt and recent history.
 	llmMessages := uc.buildLLMMessages(session.GetHistory(500), msg.Content, nil)
+
+	// Current turn messages，save into session in the end
 	trace := []traceMessage{
 		{
 			role:    model.RoleUser,
@@ -112,7 +114,6 @@ func (uc *UseCase) ProcessMessage(ctx context.Context, msg model.InboundMessage)
 		}
 		// 有工具调用，需要执行工具
 		if resp.HasToolCalls() {
-			// Append assistant's message
 			toolCallMaps := make([]map[string]any, 0, len(resp.ToolCalls))
 			for _, tc := range resp.ToolCalls {
 				argJson, _ := json.Marshal(tc.Args)

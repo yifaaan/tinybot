@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"tinybot/internal/ports"
+	"tinybot/internal/utils"
 )
 
 type WriteFileTool struct {
@@ -49,7 +50,8 @@ func (t *WriteFileTool) Execute(ctx context.Context, params map[string]any) (str
 	if strings.TrimSpace(content) == "" {
 		return "", errors.New("write file tool: `content` is required")
 	}
-	path, err := ExpandUser(path)
+
+	path, err := utils.ExpandUser(path)
 	if err != nil {
 		return "", fmt.Errorf("write file tool: %w", err)
 	}

@@ -37,5 +37,5 @@ func EnsureDir(path string) (string, error) {
 }
 
 func TodayDate() string {
-	return time.Now().In(time.Local).Format("2026-03-07")
+	return time.Now().In(time.Local).Format("2006-01-02")
 }

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"tinybot/internal/ports"
+	"tinybot/internal/utils"
 )
 
 type EditFileTool struct {
@@ -57,7 +58,7 @@ func (t *EditFileTool) Execute(ctx context.Context, params map[string]any) (stri
 	if strings.TrimSpace(newText) == "" {
 		return "", errors.New("edit file tool: `new_text` is required")
 	}
-	path, err := ExpandUser(path)
+	path, err := utils.ExpandUser(path)
 	if err != nil {
 		return "", fmt.Errorf("edit file tool: %w", err)
 	}

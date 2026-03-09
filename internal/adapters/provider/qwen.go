@@ -115,6 +115,7 @@ func (q *QwenProvider) Chat(ctx context.Context, messages []map[string]any, tool
 		OutputTokens: int(resp.Usage.CompletionTokens),
 	}
 
+	// Model need call tools
 	if len(choice.Message.ToolCalls) > 0 {
 		out.ToolCalls = make([]*model.ToolCall, 0, len(choice.Message.ToolCalls))
 		for _, tc := range choice.Message.ToolCalls {

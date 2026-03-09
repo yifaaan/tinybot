@@ -132,14 +132,21 @@ func (b *ContextBuilder) BuildSystemPrompt(skillNames []string) string {
 		parts = append(parts, docs)
 	}
 
-	// Add memory context
+	// Add memory context, which includes long-term memory and today's notes
 	memoryContext := b.memory.BuildContext()
 	if memoryContext != "" {
 		parts = append(parts, fmt.Sprintf("## Memory\n%s", memoryContext))
 	}
-	// Skills - prograssive loading
-	// TODO:1.Always-loaded skills: include full content
 
+	// Skills - prograssive loading
+	// 1.Always-loaded skills: include full content
+	alwaysSkills, err := b.skills.GetAlwaysSkills()
+	if len(alwaysSkills) > 0 {
+		alwaysContent, err := b.skills.LoadSkillsForContext(alwaysSkills)
+		if err == nil {
+			parts = append(parts, fmt.Sprintf("# Active Skills\n%s", alwaysContent))
+		}
+	}
 	// 2.Available skills: only show summary (agent uses read_file to load)
 	skillsSummary, err := b.skills.BuildSummary()
 	if err == nil && skillsSummary != "" {

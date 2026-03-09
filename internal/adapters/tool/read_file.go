@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"tinybot/internal/ports"
+	"tinybot/internal/utils"
 )
 
 // ReadFileTool is tool to read a file and return its content.
@@ -43,7 +44,7 @@ func (t *ReadFileTool) Execute(ctx context.Context, params map[string]any) (stri
 	if strings.TrimSpace(path) == "" {
 		return "", errors.New("read file tool: `path` is required")
 	}
-	path, err := ExpandUser(path)
+	path, err := utils.ExpandUser(path)
 	if err != nil {
 		return "", fmt.Errorf("read file tool: %w", err)
 	}

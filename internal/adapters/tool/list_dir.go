@@ -66,9 +66,9 @@ func (t *ListDirTool) Execute(ctx context.Context, params map[string]any) (strin
 
 	content := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		prefix := "📄 "
+		prefix := "FILE "
 		if entry.IsDir() {
-			prefix = "📁 "
+			prefix = "DIR  "
 		}
 		content = append(content, prefix+entry.Name())
 	}
