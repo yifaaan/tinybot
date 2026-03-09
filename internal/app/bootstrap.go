@@ -48,6 +48,14 @@ func NewApp(workspace string) (*App, error) {
 	editFileTool := tool.NewEditFileTool(workspace)
 	toolRegistry.Register(editFileTool)
 
+	// web search tool
+	webSearchTool := tool.NewWebSearchTool("", 5) // API key should be set via environment variable
+	toolRegistry.Register(webSearchTool)
+
+	// web fetch tool
+	webFetchTool := tool.NewWebFetchTool(50000)
+	toolRegistry.Register(webFetchTool)
+
 	chatUseCase, err := chat.NewUseCase(sessionRepo, llm, toolRegistry, 20)
 	if err != nil {
 		return nil, err
