@@ -9,7 +9,7 @@
     },
     "providers": {
         "qwen": {
-            "api_key": "",
+            "api_key": "sk-your-openai-key-here",
             "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1"
         }
     }
