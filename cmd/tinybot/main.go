@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
+	"tinybot/internal/app"
 )
 
 const logo = `
@@ -16,7 +16,7 @@ const logo = `
 func main() {
 	fmt.Print(logo)
 
-	workspace := filepath.Join(".tinybot", "workspace")
+	workspace := app.DefaultWorkspacePath()
 	if err := run(os.Args[1:], os.Stdout, workspace); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 var DefaultBootstrapFiles = []string{
@@ -22,10 +21,7 @@ type OnBoardResult struct {
 
 // OnBoard initializes the minimum workspace files that ContextBuilder expects.
 func OnBoard(ctx context.Context, workspace string) (*OnBoardResult, error) {
-	workspace = strings.TrimSpace(workspace)
-	if workspace == "" {
-		return nil, fmt.Errorf("onboard: workspace is empty")
-	}
+	workspace = ResolveWorkspacePath(workspace)
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("onboard: %w", err)
 	}

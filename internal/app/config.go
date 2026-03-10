@@ -59,8 +59,8 @@ type ExecConfig struct {
 func DefaultConfig() *Config {
 	return &Config{
 		Agents: AgentsConfig{
-			Workspace:         "~/.tinybot/workspace",
-			Model:             "qwen-max",
+			Workspace:         DefaultWorkspacePath(),
+			Model:             "qwen3-max",
 			MaxTokens:         8192,
 			Temperature:       0.7,
 			MaxToolIterations: 20,
@@ -69,7 +69,7 @@ func DefaultConfig() *Config {
 		Providers: ProvidersConfig{
 			QWen: ProviderConfig{
 				ApiKey:  "",
-				ApiBase: "https://api.qwen.com/v1",
+				ApiBase: "https://dashscope.aliyuncs.com/compatible-mode/v1",
 			},
 		},
 		Tools: ToolsConfig{
@@ -114,6 +114,7 @@ func (cfg *Config) GetAPIBase(providerName string) string {
 }
 
 func LoadConfig(workspace string) (*Config, error) {
+	workspace = ResolveWorkspacePath(workspace)
 	cfg := DefaultConfig()
 
 	cfgPath := getConfigPath(workspace)
@@ -141,6 +142,7 @@ func SaveConfig(cfg *Config, workspace string) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
+	workspace = ResolveWorkspacePath(workspace)
 
 	cfgPath := getConfigPath(workspace)
 	data, err := json.MarshalIndent(cfg, "", "  ")
@@ -158,5 +160,6 @@ func SaveConfig(cfg *Config, workspace string) error {
 }
 
 func getConfigPath(workspace string) string {
+	workspace = ResolveWorkspacePath(workspace)
 	return filepath.Join(workspace, "config.json")
 }

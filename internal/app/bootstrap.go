@@ -16,6 +16,8 @@ type App struct {
 }
 
 func NewApp(workspace string) (*App, error) {
+	workspace = ResolveWorkspacePath(workspace)
+
 	if err := godotenv.Load(); err != nil {
 		return nil, err
 	}

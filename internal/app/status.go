@@ -16,14 +16,12 @@ type Status struct {
 }
 
 func CheckStatus(workspace string) Status {
+	workspace = ResolveWorkspacePath(workspace)
+
 	status := Status{
 		Workspace:      workspace,
 		BootstrapFiles: make(map[string]bool, len(DefaultBootstrapFiles)),
 		MissingFiles:   make([]string, 0, len(DefaultBootstrapFiles)+2),
-	}
-
-	if workspace == "" {
-		return status
 	}
 
 	status.WorkspaceExists = dirExists(workspace)

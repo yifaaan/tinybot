@@ -2,7 +2,7 @@
     "agents": {
     "defaults": {
       "workspace": "~/.picoclaw/workspace",
-      "model": "qwen-max",
+      "model": "qwen3-max",
       "max_tokens": 8192,
       "temperature": 0.7,
       "max_tool_iterations": 20
@@ -10,7 +10,7 @@
     "providers": {
         "qwen": {
             "api_key": "",
-            "api_base": ""
+            "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1"
         }
     }
   }
