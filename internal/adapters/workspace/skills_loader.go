@@ -8,11 +8,17 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 )
 
-var frontMatterRe = regexp.MustCompile(`(?s)^---\r?\n(.*?)\r?\n---`)
+// ---
+// title: Hello
+// author: Tom
+// ---
+// 这里是正�?// 第二�?var
+var reFrontMatter = regexp.MustCompile(`(?s)^---\r?\n(.*?)\r?\n---\r?\n(.*)$`)
 
 // Default builtin skills directory (relative to this file)
 var BuiltinSkillsDir = func() string {
@@ -40,6 +46,12 @@ type SkillInfo struct {
 	RequiresEnv []string
 	RequiresBin []string
 	Missing     []string
+}
+
+type SkillLocation struct {
+	Name   string
+	Path   string
+	Source string
 }
 
 // SkillsLoader is responsible for discovering and loading skills from the workspace and builtin directories.
@@ -135,27 +147,13 @@ func (l *SkillsLoader) ListSkills(filterUnavailable bool) ([]SkillInfo, error) {
 	return skills, nil
 }
 
-// LoadSkill load SKILL.md content by skill name
+// LoadSkill load SKILL.md full content by skill name
 func (l *SkillsLoader) LoadSkill(name string) (string, error) {
-	// Check workspace first
-	workspaceSkill := filepath.Join(l.workspaceSkillsDir, name, "SKILL.md")
-	_, err := os.Stat(workspaceSkill)
-	if err == nil {
-		content, err := os.ReadFile(workspaceSkill)
-		if err == nil {
-			return string(content), nil
-		}
+	path, err := l.resolveSkillPath(name)
+	if err != nil {
+		return "", err
 	}
-	// Check builtin next
-	builtinSkill := filepath.Join(l.builtinDir, name, "SKILL.md")
-	_, err = os.Stat(builtinSkill)
-	if err == nil {
-		content, err := os.ReadFile(builtinSkill)
-		if err == nil {
-			return string(content), nil
-		}
-	}
-	return "", os.ErrNotExist
+	return l.loadSkillContent(path)
 }
 
 // LoadSkillsForContext load selected skills and format them for context injection
@@ -203,9 +201,18 @@ func (l *SkillsLoader) BuildSummary() (string, error) {
 }
 
 func (l *SkillsLoader) buildSkillInfo(name string) (SkillInfo, error) {
-	skillInfo, err := l.getSkillMetadata(name)
+	content, err := l.LoadSkill(name)
+	if err != nil {
+		return SkillInfo{}, fmt.Errorf("load skill content: %w", err)
+	}
+	skillMeta, err := ParseSkillMetadata(content, name)
 	if err != nil {
 		return SkillInfo{}, err
+	}
+	skillInfo := SkillInfo{
+		Name:        skillMeta.Name,
+		Description: skillMeta.Description,
+		Always:      skillMeta.Always,
 	}
 	skillInfo.Available = l.checkRequirements(&skillInfo)
 	return skillInfo, nil
@@ -239,7 +246,7 @@ func (l *SkillsLoader) getSkillMetadata(name string) (SkillInfo, error) {
 		return SkillInfo{}, errors.New("empty skill content")
 	}
 
-	matches := frontMatterRe.FindStringSubmatch(content)
+	matches := reFrontMatter.FindStringSubmatch(content)
 	if len(matches) < 2 {
 		return SkillInfo{}, errors.New("invalid skill metadata format")
 	}
@@ -248,7 +255,7 @@ func (l *SkillsLoader) getSkillMetadata(name string) (SkillInfo, error) {
 	// YAML parsing
 	for _, line := range strings.Split(raw, "\n") {
 		if strings.Contains(line, ":") {
-			kv := strings.SplitN(line, ":", 1)
+			kv := strings.SplitN(line, ":", 2)
 			k := kv[0]
 			v := kv[1]
 			switch k {
@@ -283,4 +290,112 @@ func (l *SkillsLoader) parseOpenclawMetadata(raw string) map[string]any {
 	_ = json.Unmarshal([]byte(raw), &data)
 
 	return data["openclaw"].(map[string]any)
+}
+
+func (l *SkillsLoader) loadSkillContent(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func (l *SkillsLoader) buildSkillInfoFromLocation(loc SkillLocation) (SkillInfo, error) {
+	content, err := l.loadSkillContent(loc.Path)
+	if err != nil {
+		return SkillInfo{}, fmt.Errorf("load skill content: %w", err)
+	}
+	skillMeta, err := ParseSkillMetadata(content, loc.Name)
+	if err != nil {
+		return SkillInfo{}, err
+	}
+
+	info := SkillInfo{
+		Name:        skillMeta.Name,
+		Description: skillMeta.Description,
+		Always:      skillMeta.Always,
+		Path:        loc.Path,
+		Source:      loc.Source,
+		MetadataRaw: "", // TODO: 以后如果需要保�?raw metadata，再补充这个字段
+	}
+	info.Available = l.checkRequirements(&info)
+
+	return info, nil
+}
+
+// resolveSKillPath return the full path of the SKILL.md by name
+func (l *SkillsLoader) resolveSkillPath(name string) (string, error) {
+	// Check workspace first
+	workspaceSkill := filepath.Join(l.workspaceSkillsDir, name, "SKILL.md")
+	if _, err := os.Stat(workspaceSkill); err == nil {
+		return workspaceSkill, nil
+	}
+	// Check builtin next
+	builtinSkill := filepath.Join(l.builtinDir, name, "SKILL.md")
+	if _, err := os.Stat(builtinSkill); err == nil {
+
+	}
+	return "", os.ErrNotExist
+}
+
+func (l *SkillsLoader) discoverSkillLocations() ([]SkillLocation, error) {
+	locations := make([]SkillLocation, 0, 8)
+	seen := make(map[string]struct{})
+
+	workspaceSkillLocations, err := l.discoverFromDir(l.workspaceSkillsDir, "workspace", seen)
+	if err != nil {
+		return nil, err
+	}
+	locations = append(locations, workspaceSkillLocations...)
+
+	builtinSkillLocations, err := l.discoverFromDir(l.builtinDir, "builtin", seen)
+	if err != nil {
+		return nil, err
+	}
+	locations = append(locations, builtinSkillLocations...)
+
+	sort.Slice(locations, func(i, j int) bool {
+		return locations[i].Name < locations[j].Name
+	})
+	return locations, nil
+}
+
+// discoverFromDir discovers skills from a specific directory and returns their locations. It also updates the seen map to avoid duplicates.
+func (l *SkillsLoader) discoverFromDir(dir string, source string, seen map[string]struct{}) ([]SkillLocation, error) {
+	locations := make([]SkillLocation, 0, 8)
+
+	_, err := os.Stat(dir)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read skills
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if _, ok := seen[name]; ok {
+			continue
+		}
+
+		path := filepath.Join(dir, entry.Name(), "SKILL.md")
+		_, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+
+		locations = append(locations, SkillLocation{
+			Name:   name,
+			Source: source,
+			Path:   path,
+		})
+		seen[name] = struct{}{}
+	}
+
+	return locations, nil
 }
