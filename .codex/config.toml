@@ -1,0 +1,4 @@
+
+[agents.go_rewrite_mentor]
+description = "Go refactoring mentor agent: Analyze the nanobot template project, produce a Go refactoring spec, evaluate the current progress, and provide beginners with next-step implementation suggestions and code skeletons (with detailed comments and steps)."
+config_file = "agents/go-rewrite-mentor.toml"
