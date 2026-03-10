@@ -20,6 +20,12 @@ func NewApp(workspace string) (*App, error) {
 		return nil, err
 	}
 
+	cfg := DefaultConfig()
+	cfg, err := LoadConfig(workspace)
+	if err != nil {
+		return nil, err
+	}
+
 	sessionRepo := repository.NewFileSessionRepository(workspace)
 	llm, err := provider.NewQwenClientFromEnv()
 	if err != nil {
@@ -29,7 +35,7 @@ func NewApp(workspace string) (*App, error) {
 	// 初始化工具注册表，并注册工具
 	toolRegistry := tool.NewRegistry()
 	// exec tool
-	execTool := tool.NewExecTool(10, workspace)
+	execTool := tool.NewExecTool(cfg.Tools.Exec.TimeoutSeconds, workspace)
 	toolRegistry.Register(execTool)
 
 	// read file tool
@@ -49,14 +55,14 @@ func NewApp(workspace string) (*App, error) {
 	toolRegistry.Register(editFileTool)
 
 	// web search tool
-	webSearchTool := tool.NewWebSearchTool("", 5) // API key should be set via environment variable
+	webSearchTool := tool.NewWebSearchTool("", cfg.Tools.WebSearch.MaxResult) // API key should be set via environment variable
 	toolRegistry.Register(webSearchTool)
 
 	// web fetch tool
-	webFetchTool := tool.NewWebFetchTool(50000)
+	webFetchTool := tool.NewWebFetchTool(cfg.Tools.WebFetch.MaxChars)
 	toolRegistry.Register(webFetchTool)
 
-	chatUseCase, err := chat.NewUseCase(sessionRepo, llm, toolRegistry, 20)
+	chatUseCase, err := chat.NewUseCase(sessionRepo, llm, toolRegistry, cfg.Agents.MaxToolIterations)
 	if err != nil {
 		return nil, err
 	}

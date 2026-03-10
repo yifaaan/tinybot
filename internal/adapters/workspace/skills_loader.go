@@ -333,7 +333,7 @@ func (l *SkillsLoader) resolveSkillPath(name string) (string, error) {
 	// Check builtin next
 	builtinSkill := filepath.Join(l.builtinDir, name, "SKILL.md")
 	if _, err := os.Stat(builtinSkill); err == nil {
-
+		return builtinSkill, nil
 	}
 	return "", os.ErrNotExist
 }

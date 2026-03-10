@@ -1,12 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
+	"io"
 	"os"
-	"strings"
-	"time"
-	"tinybot/internal/app"
+	"path/filepath"
 )
 
 const logo = `
@@ -18,26 +16,18 @@ const logo = `
 func main() {
 	fmt.Print(logo)
 
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: tinybot <your message>")
-		return
+	workspace := filepath.Join(".tinybot", "workspace")
+	if err := run(os.Args[1:], os.Stdout, workspace); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
+}
 
-	workspace, err := os.Getwd()
-	app, err := app.NewApp(workspace)
-	if err != nil {
-		fmt.Println("failed to create app:", err)
-		return
-	}
-
-	input := strings.TrimSpace(strings.Join(os.Args[1:], " "))
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	reply, err := app.ChatUseCase.ProcessDirect(ctx, "cli:direct", input)
-	if err != nil {
-		fmt.Println("failed to process direct message:", err)
-		return
-	}
-	fmt.Println(reply)
+func printHelp(out io.Writer) {
+	_, _ = fmt.Fprintf(out, `Usage: tinybot <your message>
+Commands:
+  onboard - Initialize tinybot configuration and workspace
+  status - Show current status of tinybot
+  help - Show this help message
+`)
 }
