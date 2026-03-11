@@ -27,6 +27,7 @@ func printHelp(out io.Writer) {
 	_, _ = fmt.Fprintf(out, `Usage: tinybot <your message>
 Commands:
   onboard - Initialize tinybot configuration and workspace
+  gateway - Start tinybot in long-running local gateway mode
   status - Show current status of tinybot
   help - Show this help message
 `)

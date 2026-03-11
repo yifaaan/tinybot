@@ -36,6 +36,8 @@ func run(args []string, out io.Writer, workspace string) error {
 		return runOnboard(out, workspace)
 	case "status":
 		return runStatus(out, workspace)
+	case "gateway":
+		return runGateway(out, workspace)
 	default:
 		// Any non-command input is treated as a direct chat message.
 		// This keeps the CLI ergonomic for the MVP: `tinybot 你好` still works.

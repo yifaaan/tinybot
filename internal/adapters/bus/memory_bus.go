@@ -72,10 +72,11 @@ func (b *MemoryBus) ConsumeOutbound(ctx context.Context) (model.OutboundMessage,
 	}
 }
 
-func (b *MemoryBus) Close() {
+func (b *MemoryBus) Close() error {
 	b.closeOnce.Do(func() {
 		close(b.inbound)
 		close(b.outbound)
 		close(b.closed)
 	})
+	return nil
 }
