@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"tinybot/internal/domain/model"
 
@@ -53,13 +52,6 @@ func NewQwenProvider(apiKey string, apiBase string, model string) (*QwenProvider
 		client: &client,
 		model:  model,
 	}, nil
-}
-
-func NewQwenClientFromEnv() (*QwenProvider, error) {
-	apiKey := os.Getenv("DASHSCOPE_API_KEY")
-	apiBase := os.Getenv("DASHSCOPE_BASE_URL")
-	model := os.Getenv("QWEN_MODEL")
-	return NewQwenProvider(apiKey, apiBase, model)
 }
 
 // Chat sends a chat completion request to the Qwen model.

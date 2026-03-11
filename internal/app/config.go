@@ -108,6 +108,9 @@ func (cfg *Config) ApplyEnvOverrides() {
 	if apiBase := os.Getenv("QWEN_API_BASE"); apiBase != "" {
 		cfg.Providers.QWen.ApiBase = apiBase
 	}
+	if model := os.Getenv("QWEN_MODEL"); model != "" {
+		cfg.Agents.Model = model
+	}
 }
 
 func (cfg *Config) WorkspacePath() (string, error) {

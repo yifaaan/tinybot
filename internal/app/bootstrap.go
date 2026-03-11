@@ -1,6 +1,8 @@
 package app
 
 import (
+	"fmt"
+	"strings"
 	"tinybot/internal/adapters/provider"
 	"tinybot/internal/adapters/repository"
 	"tinybot/internal/adapters/tool"
@@ -30,7 +32,7 @@ func NewApp(workspace string) (*App, error) {
 	}
 
 	sessionRepo := repository.NewFileSessionRepository(workspace)
-	llm, err := provider.NewQwenProvider(cfg.GetAPIKey("qwen"), cfg.GetAPIBase("qwen"), cfg.Agents.Model)
+	llm, err := newLLMClientFromConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -76,4 +78,19 @@ func NewApp(workspace string) (*App, error) {
 		SessionRepo: sessionRepo,
 		Config:      cfg,
 	}, nil
+}
+
+func newLLMClientFromConfig(cfg *Config) (ports.LLMClient, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("llm config is nil")
+	}
+
+	apiKey := strings.TrimSpace(cfg.Providers.QWen.ApiKey)
+	apiBase := strings.TrimSpace(cfg.Providers.QWen.ApiBase)
+	model := strings.TrimSpace(cfg.Agents.Model)
+
+	if apiKey == "" {
+		return nil, fmt.Errorf("missing qwen api key: set it in workspace config or env")
+	}
+	return provider.NewQwenProvider(apiKey, apiBase, model)
 }
