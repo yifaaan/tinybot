@@ -97,7 +97,11 @@ func DefaultConfig() *Config {
 	}
 }
 
+// ApplyEnvOverrides overrides config fields with corresponding environment variables if they are set
 func (cfg *Config) ApplyEnvOverrides() {
+	if cfg == nil {
+		return
+	}
 	if apiKey := os.Getenv("QWEN_API_KEY"); apiKey != "" {
 		cfg.Providers.QWen.ApiKey = apiKey
 	}

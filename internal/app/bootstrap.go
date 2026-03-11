@@ -30,7 +30,7 @@ func NewApp(workspace string) (*App, error) {
 	}
 
 	sessionRepo := repository.NewFileSessionRepository(workspace)
-	llm, err := provider.NewQwenClientFromEnv()
+	llm, err := provider.NewQwenProvider(cfg.GetAPIKey("qwen"), cfg.GetAPIBase("qwen"), cfg.Agents.Model)
 	if err != nil {
 		return nil, err
 	}
