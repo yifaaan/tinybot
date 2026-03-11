@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -62,7 +61,7 @@ func (m *FileSessionRepository) GetOrCreateSession(key string) *model.Session {
 
 	s, _ := m.LoadSession(key)
 	if s == nil {
-		slog.Info("creating new session", "key", key)
+		// slog.Info("creating new session", "key", key)
 		s = model.NewSession(key)
 	}
 	m.cache[key] = s

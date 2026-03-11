@@ -13,6 +13,7 @@ import (
 type App struct {
 	ChatUseCase *chat.UseCase
 	SessionRepo ports.SessionRepository
+	Config      *Config
 }
 
 func NewApp(workspace string) (*App, error) {
@@ -73,5 +74,6 @@ func NewApp(workspace string) (*App, error) {
 	return &App{
 		ChatUseCase: chatUseCase,
 		SessionRepo: sessionRepo,
+		Config:      cfg,
 	}, nil
 }

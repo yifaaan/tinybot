@@ -25,6 +25,15 @@ type AgentsConfig struct {
 
 type ChannelsConfig struct {
 	// TODO: support multiple channels
+	Console ConsoleChannelConfig `json:"console,omitempty"`
+}
+
+type ConsoleChannelConfig struct {
+	Enabled    bool   `json:"enabled"`
+	Prompt     string `json:"prompt,omitempty"`
+	ChatID     string `json:"chat_id,omitempty"`
+	SenderID   string `json:"sender_id,omitempty"`
+	ShowPrefix bool   `json:"show_prefix,omitempty"`
 }
 
 type ProvidersConfig struct {
@@ -65,7 +74,15 @@ func DefaultConfig() *Config {
 			Temperature:       0.7,
 			MaxToolIterations: 20,
 		},
-		Channels: ChannelsConfig{},
+		Channels: ChannelsConfig{
+			Console: ConsoleChannelConfig{
+				Enabled:    true,
+				Prompt:     "You>",
+				ChatID:     "gateway",
+				SenderID:   "console-user",
+				ShowPrefix: true,
+			},
+		},
 		Providers: ProvidersConfig{
 			QWen: ProviderConfig{
 				ApiKey:  "",

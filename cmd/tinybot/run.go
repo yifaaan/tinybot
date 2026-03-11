@@ -109,15 +109,13 @@ func runGateway(out io.Writer, workspace string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	gw, err := app.NewGatewayApp(workspace)
+	gw, err := app.NewGatewayApp(workspace, os.Stdin, out)
 	if err != nil {
 		return fmt.Errorf("run gateway: %w", err)
 	}
 	defer gw.Close()
 
-	_, _ = fmt.Fprintln(out, "tinybot gateway started (local in-memory mode)")
-	_, _ = fmt.Fprintln(out, "Press Ctrl+C to stop.")
-	_, _ = fmt.Fprintln(out, "TODO: attach channels / cron producers and outbound consumers.")
-
+	_, _ = fmt.Fprintln(out, "tinybot gateway started (console channel mode)")
+	_, _ = fmt.Fprintln(out, "Type a message and press Enter. Press Ctrl+C to stop.")
 	return gw.Run(ctx)
 }
