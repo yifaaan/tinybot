@@ -34,3 +34,10 @@ func (a *GatewayApp) Run(ctx context.Context) error {
 	}
 	return a.Loop.Run(ctx)
 }
+
+func (a *GatewayApp) Close() error {
+	if a == nil || a.Bus == nil {
+		return nil
+	}
+	return a.Bus.Close()
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"tinybot/internal/domain/model"
 	"tinybot/internal/ports"
 )
@@ -14,6 +15,7 @@ type MemoryBus struct {
 
 	closed chan struct{}
 
+	closeFlag atomic.Bool
 	closeOnce sync.Once
 }
 
@@ -29,6 +31,9 @@ func NewMemoryBus(bufferSize int) *MemoryBus {
 }
 
 func (b *MemoryBus) PublishInbound(ctx context.Context, msg model.InboundMessage) error {
+	if b.closeFlag.Load() {
+		return ports.ErrBusClosed
+	}
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("publish inbound: %w", ctx.Err())
@@ -40,6 +45,9 @@ func (b *MemoryBus) PublishInbound(ctx context.Context, msg model.InboundMessage
 }
 
 func (b *MemoryBus) ConsumeInbound(ctx context.Context) (model.InboundMessage, error) {
+	if b.closeFlag.Load() {
+		return model.InboundMessage{}, ports.ErrBusClosed
+	}
 	select {
 	case <-ctx.Done():
 		return model.InboundMessage{}, fmt.Errorf("consume inbound: %w", ctx.Err())
@@ -51,6 +59,9 @@ func (b *MemoryBus) ConsumeInbound(ctx context.Context) (model.InboundMessage, e
 }
 
 func (b *MemoryBus) PublishOutbound(ctx context.Context, msg model.OutboundMessage) error {
+	if b.closeFlag.Load() {
+		return ports.ErrBusClosed
+	}
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("publish outbound: %w", ctx.Err())
@@ -62,6 +73,9 @@ func (b *MemoryBus) PublishOutbound(ctx context.Context, msg model.OutboundMessa
 }
 
 func (b *MemoryBus) ConsumeOutbound(ctx context.Context) (model.OutboundMessage, error) {
+	if b.closeFlag.Load() {
+		return model.OutboundMessage{}, ports.ErrBusClosed
+	}
 	select {
 	case <-ctx.Done():
 		return model.OutboundMessage{}, fmt.Errorf("consume outbound: %w", ctx.Err())
@@ -74,8 +88,7 @@ func (b *MemoryBus) ConsumeOutbound(ctx context.Context) (model.OutboundMessage,
 
 func (b *MemoryBus) Close() error {
 	b.closeOnce.Do(func() {
-		close(b.inbound)
-		close(b.outbound)
+		b.closeFlag.Store(true)
 		close(b.closed)
 	})
 	return nil

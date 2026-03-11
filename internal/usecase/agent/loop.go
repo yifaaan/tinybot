@@ -55,7 +55,7 @@ func (l *Loop) Run(ctx context.Context) error {
 				Content: fmt.Sprintf("Sorry, I encountered an error: %v", err),
 			}
 			if pubErr := l.bus.PublishOutbound(ctx, fallback); pubErr != nil {
-				if errors.Is(err, ports.ErrBusClosed) || errors.Is(err, context.Canceled) {
+				if errors.Is(pubErr, ports.ErrBusClosed) || errors.Is(pubErr, context.Canceled) {
 					return nil
 				}
 				return fmt.Errorf("agent loop publish fallback: %w", pubErr)
