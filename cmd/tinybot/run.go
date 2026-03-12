@@ -255,7 +255,7 @@ func runCronRunOnce(out io.Writer, workspace string, repo ports.CronRepository) 
 }
 
 // tinybot cron remove <job_id>
-func runCronRemove(args []string, out io.Writer, worskpace string, repo ports.CronRepository) error {
+func runCronRemove(args []string, out io.Writer, repo ports.CronRepository) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: tinybot cron remove <job_id>")
 	}

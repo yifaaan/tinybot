@@ -64,7 +64,7 @@ func (t *MessageTool) Spec() ports.ToolSpec {
                 }
 			},
 			"required": ["content"]
-		`),
+		}`),
 	}
 }
 
