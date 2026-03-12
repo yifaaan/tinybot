@@ -9,12 +9,14 @@ import (
 	"tinybot/internal/adapters/channel"
 
 	"tinybot/internal/usecase/agent"
+	"tinybot/internal/usecase/heartbeat"
 )
 
 type GatewayApp struct {
-	Bus     *bus.MemoryBus
-	Loop    *agent.Loop
-	Manager *channel.ChannelManager
+	Bus       *bus.MemoryBus
+	Loop      *agent.Loop
+	Manager   *channel.ChannelManager
+	Heartbeat *heartbeat.Service
 }
 
 func NewGatewayApp(workspace string, input io.Reader, output io.Writer) (*GatewayApp, error) {
@@ -26,6 +28,7 @@ func NewGatewayApp(workspace string, input io.Reader, output io.Writer) (*Gatewa
 	bs := bus.NewMemoryBus(16)
 	lp := agent.NewLoop(app.ChatUseCase, bs)
 	manager := channel.NewChannelManager(bs)
+	heartbeatSvc := heartbeat.NewService(workspace, app.ChatUseCase, app.Config.Heartbeat.IntervalSeconds, app.Config.Heartbeat.Enabled)
 
 	// 根据配置注册 ConsoleChannel
 	if app.Config.Channels.Console.Enabled {
@@ -39,9 +42,10 @@ func NewGatewayApp(workspace string, input io.Reader, output io.Writer) (*Gatewa
 		manager.RegisterChannel(consoleCh)
 	}
 	return &GatewayApp{
-		Bus:     bs,
-		Loop:    lp,
-		Manager: manager,
+		Bus:       bs,
+		Loop:      lp,
+		Manager:   manager,
+		Heartbeat: heartbeatSvc,
 	}, nil
 }
 
@@ -50,7 +54,7 @@ func (a *GatewayApp) Run(ctx context.Context) error {
 		return errors.New("gateway app is not properly initialized")
 	}
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
 
 	go func() {
 		errCh <- a.Loop.Run(ctx)
@@ -60,7 +64,11 @@ func (a *GatewayApp) Run(ctx context.Context) error {
 		errCh <- a.Manager.Start(ctx)
 	}()
 
-	for i := 0; i < 2; i++ {
+	go func() {
+		errCh <- a.Heartbeat.Run(ctx)
+	}()
+
+	for i := 0; i < 3; i++ {
 		if err := <-errCh; err != nil && !errors.Is(err, context.Canceled) {
 			return fmt.Errorf("gateway app run: %w", err)
 		}

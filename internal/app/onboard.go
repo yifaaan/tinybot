@@ -14,6 +14,10 @@ var DefaultBootstrapFiles = []string{
 	"TOOLS.md",
 }
 
+var DefaultRuntimeFiles = []string{
+	"HEARTBEAT.md",
+}
+
 type OnBoardResult struct {
 	Workspace    string
 	CreatedFiles []string
@@ -61,6 +65,14 @@ func OnBoard(ctx context.Context, workspace string) (*OnBoardResult, error) {
 	}
 	if createdMemory {
 		result.CreatedFiles = append(result.CreatedFiles, filepath.Join("memory", "MEMORY.md"))
+	}
+
+	createHeartbeat, err := ensureFile(filepath.Join(workspace, "HEARTBEAT.md"), defaultHeartbeatMD())
+	if err != nil {
+		return nil, fmt.Errorf("onboard heartbeat: %w", err)
+	}
+	if createHeartbeat {
+		result.CreatedFiles = append(result.CreatedFiles, "HEARTBEAT.md")
 	}
 
 	configPath := getConfigPath(workspace)
@@ -166,4 +178,19 @@ func defaultMemoryMD() string {
 
 ## Important Notes
 `
+}
+
+func defaultHeartbeatMD() string {
+	return `# Heartbeat
+
+  This file is checked by tinybot's background heartbeat service.
+
+  ## How to use
+  - Put short actionable tasks here.
+  - Empty files, headers, comments, and empty checkboxes are ignored.
+  - Keep this file minimal. It should contain recurring self-check instructions.
+
+  <!-- Example:
+  Review memory/MEMORY.md and today's note once every morning.
+  -->`
 }

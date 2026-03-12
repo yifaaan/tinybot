@@ -75,6 +75,7 @@ func runStatus(out io.Writer, workspace string) error {
 	_, _ = fmt.Fprintf(out, "Config exists: %t\n", status.ConfigExists)
 	_, _ = fmt.Fprintf(out, "Memory exists: %t\n", status.MemoryFileExists)
 	_, _ = fmt.Fprintf(out, "Skills dir exists: %t\n", status.SkillsDirExists)
+	_, _ = fmt.Fprintf(out, "Heartbeat file exists: %t\n", status.HeartbeatFileExists)
 
 	if len(status.MissingFiles) > 0 {
 		_, _ = fmt.Fprintln(out, "Missing files:")

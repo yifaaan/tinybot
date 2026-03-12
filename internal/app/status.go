@@ -6,13 +6,14 @@ import (
 )
 
 type Status struct {
-	Workspace        string
-	WorkspaceExists  bool
-	ConfigExists     bool
-	MemoryFileExists bool
-	SkillsDirExists  bool
-	BootstrapFiles   map[string]bool
-	MissingFiles     []string
+	Workspace           string
+	WorkspaceExists     bool
+	ConfigExists        bool
+	MemoryFileExists    bool
+	SkillsDirExists     bool
+	HeartbeatFileExists bool
+	BootstrapFiles      map[string]bool
+	MissingFiles        []string
 }
 
 func CheckStatus(workspace string) Status {
@@ -28,7 +29,7 @@ func CheckStatus(workspace string) Status {
 	status.ConfigExists = fileExists(getConfigPath(workspace))
 	status.MemoryFileExists = fileExists(filepath.Join(workspace, "memory", "MEMORY.md"))
 	status.SkillsDirExists = dirExists(filepath.Join(workspace, "skills"))
-
+	status.HeartbeatFileExists = fileExists(filepath.Join(workspace, "HEARTBEAT.md"))
 	for _, name := range DefaultBootstrapFiles {
 		path := filepath.Join(workspace, name)
 		ok := fileExists(path)
@@ -44,7 +45,6 @@ func CheckStatus(workspace string) Status {
 	if !status.MemoryFileExists {
 		status.MissingFiles = append(status.MissingFiles, filepath.Join("memory", "MEMORY.md"))
 	}
-
 	return status
 }
 
