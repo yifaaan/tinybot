@@ -13,6 +13,7 @@ type Config struct {
 	Channels  ChannelsConfig  `json:"channels,omitempty"`
 	Providers ProvidersConfig `json:"providers"`
 	Tools     ToolsConfig     `json:"tools,omitempty"`
+	Heartbeat HeartbeatConfig `json:"heartbeat,omitempty"`
 }
 
 type AgentsConfig struct {
@@ -20,7 +21,7 @@ type AgentsConfig struct {
 	Model             string  `json:"model"`
 	MaxTokens         int     `json:"max_tokens"`
 	Temperature       float64 `json:"temperature"`
-	MaxToolIterations int     `json:"default_max_iterations"`
+	MaxToolIterations int     `json:"max_tool_iterations"`
 }
 
 type ChannelsConfig struct {
@@ -44,6 +45,11 @@ type ProvidersConfig struct {
 type ProviderConfig struct {
 	ApiKey  string `json:"api_key"`
 	ApiBase string `json:"api_base"`
+}
+
+type HeartbeatConfig struct {
+	Enabled         bool `json:"enabled"`
+	IntervalSeconds int  `json:"interval_seconds"`
 }
 
 type ToolsConfig struct {
@@ -93,6 +99,10 @@ func DefaultConfig() *Config {
 			WebSearch: WebSearchConfig{MaxResult: 10},
 			WebFetch:  WebFetchConfig{MaxChars: 50000},
 			Exec:      ExecConfig{TimeoutSeconds: 10},
+		},
+		Heartbeat: HeartbeatConfig{
+			Enabled:         true,
+			IntervalSeconds: 60,
 		},
 	}
 }
