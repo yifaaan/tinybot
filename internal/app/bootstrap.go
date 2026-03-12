@@ -6,6 +6,7 @@ import (
 	"tinybot/internal/adapters/provider"
 	"tinybot/internal/adapters/repository"
 	"tinybot/internal/adapters/tool"
+	"tinybot/internal/domain/model"
 	"tinybot/internal/ports"
 	"tinybot/internal/usecase/chat"
 
@@ -66,6 +67,10 @@ func NewApp(workspace string) (*App, error) {
 	// web fetch tool
 	webFetchTool := tool.NewWebFetchTool(cfg.Tools.WebFetch.MaxChars)
 	toolRegistry.Register(webFetchTool)
+
+	// message tool
+	messageTool := tool.NewMessageTool(nil, model.ChannelCLI, "")
+	toolRegistry.Register(messageTool)
 
 	chatUseCase, err := chat.NewUseCase(sessionRepo, llm, toolRegistry, cfg.Agents.MaxToolIterations)
 	if err != nil {

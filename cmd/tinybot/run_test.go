@@ -65,3 +65,37 @@ func TestRun_Status_ShowsMissingFilesBeforeOnboard(t *testing.T) {
 		t.Fatalf("status output missing memory file: %s", text)
 	}
 }
+
+func TestRun_CronList_Empty(t *testing.T) {
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	var out bytes.Buffer
+	if err := run([]string{"cron", "list"}, &out, workspace); err != nil {
+		t.Fatalf("run(cron list) error: %v", err)
+	}
+	if !strings.Contains(out.String(), "No cron jobs found.") {
+		t.Fatalf("unexpected output: %s", out.String())
+	}
+}
+func TestRun_CronAdd_ThenList(t *testing.T) {
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	var out bytes.Buffer
+	if err := run([]string{"cron", "add", "daily", "60", "check status"}, &out, workspace); err != nil {
+		t.Fatalf("run(cron add) error: %v", err)
+	}
+	out.Reset()
+	if err := run([]string{"cron", "list"}, &out, workspace); err != nil {
+		t.Fatalf("run(cron list) error: %v", err)
+	}
+	text := out.String()
+	if !strings.Contains(text, "daily") {
+		t.Fatalf("cron list output missing job name: %s", text)
+	}
+}
+func TestRun_CronAdd_InvalidArgs(t *testing.T) {
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	var out bytes.Buffer
+	err := run([]string{"cron", "add", "daily"}, &out, workspace)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}

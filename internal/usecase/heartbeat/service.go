@@ -42,6 +42,7 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 
 	ticker := time.NewTicker(s.intervalSeconds)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
