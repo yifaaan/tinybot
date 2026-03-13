@@ -135,3 +135,51 @@ func TestFileCronRepository_SaveJobs_CanceledContext(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+func TestFileCronRepository_SaveJobs_ThenListJobs_WithAtSchedule(t *testing.T) {
+	workspace := newTestWorkspace(t)
+	repo := NewFileCronRepository(workspace)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	at := now.Add(2 * time.Hour)
+
+	want := []model.CronJob{
+		{
+			ID:         "job-at",
+			Name:       "one-shot",
+			Enabled:    true,
+			Prompt:     "future reminder",
+			SessionKey: "cron:job-at",
+			Schedule: model.CronSchedule{
+				Kind: model.CronScheduleAt,
+				At:   &at,
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
+			NextRunAt: &at,
+		},
+	}
+
+	if err := repo.SaveJobs(context.Background(), want); err != nil {
+		t.Fatalf("SaveJobs() error: %v", err)
+	}
+
+	got, err := repo.ListJobs(context.Background())
+	if err != nil {
+		t.Fatalf("ListJobs() error: %v", err)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1", len(got))
+	}
+
+	if got[0].Schedule.Kind != want[0].Schedule.Kind {
+		t.Fatalf("got[0].Schedule.Kind = %q, want %q", got[0].Schedule.Kind, want[0].Schedule.Kind)
+	}
+	if got[0].Schedule.At == nil {
+		t.Fatal("got[0].Schedule.At = nil, want non-nil")
+	}
+	if !got[0].Schedule.At.Equal(*want[0].Schedule.At) {
+		t.Fatalf("got[0].Schedule.At = %v, want %v", got[0].Schedule.At, want[0].Schedule.At)
+	}
+}

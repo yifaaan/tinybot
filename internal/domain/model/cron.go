@@ -9,12 +9,17 @@ type CronScheduleKind string
 
 const (
 	CronScheduleEvery CronScheduleKind = "every"
+	CronScheduleAt    CronScheduleKind = "at"
+	// TODO: cron
 )
 
-// CronSchedule represents the schedule of a cron job.
+// CronSchedule 任务按什么方式触发
 type CronSchedule struct {
 	Kind         CronScheduleKind `json:"kind"`
 	EverySeconds int              `json:"every_seconds,omitempty"`
+
+	// At 表示在某个时间点触发一次
+	At *time.Time `json:"at,omitempty"`
 }
 
 type CronJob struct {
@@ -50,20 +55,37 @@ func (j *CronJob) Validate() error {
 	if j.Prompt == "" {
 		return fmt.Errorf("cron job prompt is required")
 	}
-	if j.Schedule.Kind != CronScheduleEvery {
+
+	switch j.Schedule.Kind {
+	case CronScheduleEvery:
+		if j.Schedule.EverySeconds <= 0 {
+			return fmt.Errorf("cron job schedule every_seconds must be positive")
+		}
+	case CronScheduleAt:
+		if j.Schedule.At == nil {
+			return fmt.Errorf("cron job schedule at is required")
+		}
+		if j.Schedule.At.IsZero() {
+			return fmt.Errorf("cron job schedule at must be a valid time")
+		}
+	default:
 		return fmt.Errorf("unsupported cron schedule kind: %s", j.Schedule.Kind)
 	}
-	if j.Schedule.EverySeconds <= 0 {
-		return fmt.Errorf("cron job schedule every_seconds must be positive")
-	}
+
 	return nil
 }
 
-// ComputeNextRun computes the next run time based on the job's schedule and the given time.
+// ComputeNextRun 根据调度类型计算“下一次执行时间
 func (j *CronJob) ComputeNextRun(from time.Time) *time.Time {
 	switch j.Schedule.Kind {
 	case CronScheduleEvery:
 		nextRun := from.Add(time.Duration(j.Schedule.EverySeconds) * time.Second)
+		return &nextRun
+	case CronScheduleAt:
+		if j.Schedule.At == nil || j.Schedule.At.Before(from) {
+			return nil
+		}
+		nextRun := *j.Schedule.At
 		return &nextRun
 	default:
 		return nil

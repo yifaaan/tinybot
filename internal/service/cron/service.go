@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"time"
+	"tinybot/internal/domain/model"
 )
 
 // Service evaluates due cron jobs and updates their execution state.
@@ -66,7 +67,8 @@ func (s *Service) TriggerOnce(ctx context.Context) (string, error) {
 			job.LastResult = resp
 		}
 
-		job.NextRunAt = job.ComputeNextRun(runAt)
+		s.advanceJobAfterRun(job, runAt)
+
 		changed = true
 	}
 
@@ -77,4 +79,21 @@ func (s *Service) TriggerOnce(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return "", nil
+}
+
+// advanceJobAfterRun 负责执行后的状态迁移
+func (s *Service) advanceJobAfterRun(job *model.CronJob, runAt time.Time) {
+	if job == nil {
+		return
+	}
+
+	switch job.Schedule.Kind {
+	case model.CronScheduleEvery:
+		job.NextRunAt = job.ComputeNextRun(runAt)
+	case model.CronScheduleAt:
+		job.Enabled = false
+		job.NextRunAt = nil
+	default:
+		job.NextRunAt = nil
+	}
 }

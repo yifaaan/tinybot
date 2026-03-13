@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeDirectChatProcessor struct {
@@ -165,5 +166,31 @@ func TestRun_CronAdd_InvalidArgs(t *testing.T) {
 	err := run([]string{"cron", "add", "daily"}, &out, workspace)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestRun_CronAddAt_ThenList(t *testing.T) {
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	var out bytes.Buffer
+
+	at := time.Now().Add(1 * time.Hour).UTC().Format(time.RFC3339)
+
+	if err := run([]string{"cron", "add-at", "meeting", at, "join standup"}, &out, workspace); err != nil {
+		t.Fatalf("run(cron add-at) error: %v", err)
+	}
+
+	out.Reset()
+
+	if err := run([]string{"cron", "list"}, &out, workspace); err != nil {
+		t.Fatalf("run(cron list) error: %v", err)
+	}
+
+	text := out.String()
+
+	if !strings.Contains(text, "meeting") {
+		t.Fatalf("cron list output missing job name: %s", text)
+	}
+	if !strings.Contains(text, "at=") {
+		t.Fatalf("cron list output missing at= field: %s", text)
 	}
 }

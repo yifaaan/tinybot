@@ -216,3 +216,48 @@ func TestService_TriggerOnce_PropagatesContextToRepoAndAgent(t *testing.T) {
 		t.Fatalf("agent.lastCtx value = %v, want %q", got, "ctx-value")
 	}
 }
+
+func TestService_TriggerOnce_DisablesAtJobAfterRun(t *testing.T) {
+	now := time.Now()
+	at := now.Add(-1 * time.Minute)
+
+	repo := &fakeCronRepo{
+		jobs: []model.CronJob{
+			{
+				ID:         "job-at",
+				Name:       "one-shot",
+				Enabled:    true,
+				Prompt:     "send reminder",
+				SessionKey: "cron:job-at",
+				Schedule: model.CronSchedule{
+					Kind: model.CronScheduleAt,
+					At:   &at,
+				},
+				NextRunAt: &at,
+			},
+		},
+	}
+	agent := &fakeCronAgent{resp: "done"}
+
+	svc, err := NewService(repo, agent)
+	if err != nil {
+		t.Fatalf("NewService() error: %v", err)
+	}
+
+	if _, err := svc.TriggerOnce(context.Background()); err != nil {
+		t.Fatalf("TriggerOnce() error: %v", err)
+	}
+
+	if len(repo.saved) != 1 {
+		t.Fatalf("len(repo.saved) = %d, want 1", len(repo.saved))
+	}
+
+	got := repo.saved[0]
+
+	if got.Enabled {
+		t.Fatal("Enabled = true, want false")
+	}
+	if got.NextRunAt != nil {
+		t.Fatalf("NextRunAt = %v, want nil", got.NextRunAt)
+	}
+}
