@@ -179,12 +179,7 @@ func (b *Builder) AddAssistantMessage(messages []map[string]any, content string,
 // - memory 提供长期上下文，但不应压过明确规则
 // - skills 更像能力扩展，放在后面更合理
 func (b *Builder) BuildSystemPrompt(skillNames []string) string {
-	// 当前版本还没有真正的“按需激活 skill 正文”逻辑。
-	// 这里先保留参数，避免后续扩展时再修改上层 service 接口。
-	//
-	// TODO: 当 runtime 能根据模型/用户选择 skill 时，在这里接入 skillNames 的显式加载。
-	_ = skillNames
-
+	// Selected skills are merged with always-on skills before prompt injection.
 	parts := []string{b.renderIdentity()}
 
 	if docs := b.collectBootstrapDocs(); docs != "" {
@@ -198,9 +193,14 @@ func (b *Builder) BuildSystemPrompt(skillNames []string) string {
 	}
 
 	if b.skills != nil {
-		alwaysSkills, err := b.skills.GetAlwaysSkills()
-		if err == nil && len(alwaysSkills) > 0 {
-			if activeSkills, loadErr := b.skills.LoadSkillsForContext(alwaysSkills); loadErr == nil && activeSkills != "" {
+		var alwaysSkills []string
+		if loadedAlwaysSkills, err := b.skills.GetAlwaysSkills(); err == nil {
+			alwaysSkills = loadedAlwaysSkills
+		}
+
+		activeSkillNames := mergeSkillNames(alwaysSkills, skillNames)
+		if len(activeSkillNames) > 0 {
+			if activeSkills, loadErr := b.skills.LoadSkillsForContext(activeSkillNames); loadErr == nil && activeSkills != "" {
 				parts = append(parts, fmt.Sprintf("# Active Skills\n\n%s", activeSkills))
 			}
 		}
@@ -216,6 +216,27 @@ Skills with available="false" need dependencies installed first - you can try in
 	}
 
 	return strings.Join(parts, "\n\n--\n\n")
+}
+
+func mergeSkillNames(alwaysSkills []string, selectedSkills []string) []string {
+	merged := make([]string, 0, len(alwaysSkills)+len(selectedSkills))
+	seen := make(map[string]struct{}, len(alwaysSkills)+len(selectedSkills))
+
+	for _, group := range [][]string{alwaysSkills, selectedSkills} {
+		for _, name := range group {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			merged = append(merged, name)
+		}
+	}
+
+	return merged
 }
 
 // collectBootstrapDocs 读取并按稳定顺序拼接 bootstrap 文档。

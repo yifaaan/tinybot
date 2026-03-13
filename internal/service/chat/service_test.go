@@ -115,6 +115,39 @@ type fakeToolRegistry struct {
 	messageChatID  string
 }
 
+type capturePromptBuilder struct {
+	lastSkillNames []string
+}
+
+func (b *capturePromptBuilder) BuildMessages(history []*model.Message, currentMessage string, skillNames []string) []map[string]any {
+	_ = history
+	b.lastSkillNames = append([]string(nil), skillNames...)
+	return []map[string]any{
+		{"role": model.RoleSystem, "content": "captured"},
+		{"role": model.RoleUser, "content": currentMessage},
+	}
+}
+
+func (b *capturePromptBuilder) AddAssistantMessage(messages []map[string]any, content string, toolCalls []map[string]any) []map[string]any {
+	msg := map[string]any{"role": model.RoleAssistant}
+	if content != "" {
+		msg["content"] = content
+	}
+	if len(toolCalls) > 0 {
+		msg["tool_calls"] = toolCalls
+	}
+	return append(messages, msg)
+}
+
+func (b *capturePromptBuilder) AddToolResult(messages []map[string]any, toolCallID string, toolName string, result string) []map[string]any {
+	return append(messages, map[string]any{
+		"role":         model.RoleTool,
+		"tool_call_id": toolCallID,
+		"name":         toolName,
+		"content":      result,
+	})
+}
+
 func newFakeToolRegistry() *fakeToolRegistry {
 	return &fakeToolRegistry{results: make(map[string]string)}
 }
@@ -485,6 +518,38 @@ func TestService_ProcessMessage_UsesPromptBuilder(t *testing.T) {
 	}
 	if captured[1]["role"] != model.RoleUser {
 		t.Fatalf("second role = %#v, want %q", captured[1]["role"], model.RoleUser)
+	}
+}
+
+func TestService_ProcessMessage_ForwardsSelectedSkillsToPromptBuilder(t *testing.T) {
+	repo := newFakeSessionRepository()
+	builder := &capturePromptBuilder{}
+	service, err := NewService(
+		repo,
+		fakeLLMClient{resp: model.LLMResponse{Content: "ok"}},
+		newFakeToolRegistry(),
+		builder,
+		20,
+		8192,
+		0.7,
+	)
+	if err != nil {
+		t.Fatalf("NewService error: %v", err)
+	}
+
+	_, err = service.ProcessMessage(context.Background(), model.InboundMessage{
+		ID:             "m-selected-skills",
+		Channel:        model.ChannelCLI,
+		ChatID:         "local",
+		Content:        "use selected skill",
+		SelectedSkills: []string{"foo", "bar"},
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage error: %v", err)
+	}
+
+	if got := strings.Join(builder.lastSkillNames, ","); got != "foo,bar" {
+		t.Fatalf("selected skills = %q, want %q", got, "foo,bar")
 	}
 }
 

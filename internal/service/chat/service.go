@@ -139,11 +139,8 @@ func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) 
 	if setter, ok := s.tools.(messageContextSetter); ok {
 		setter.SetMessageContext(msg.Channel, msg.ChatID)
 	}
-	// 当前实现还没有“按本轮上下文显式激活 skill”的完整上游流程，
-	// 所以这里先传 nil，保留接口位点但不提前发明行为。
-	//
-	// TODO: 当 runtime 能真正把 selected skills 传下来时，在这里接入 skillNames。
-	llmMessages := s.prompts.BuildMessages(session.GetHistory(500), msg.Content, nil)
+	// Explicit per-turn skill selection should flow through the request boundary.
+	llmMessages := s.prompts.BuildMessages(session.GetHistory(500), msg.Content, msg.SelectedSkills)
 	trace := []traceMessage{{
 		role:    model.RoleUser,
 		content: msg.Content,

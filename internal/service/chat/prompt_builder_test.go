@@ -51,18 +51,19 @@ type stubSkillCatalog struct {
 	always  []string
 	body    string
 	summary string
+	loaded  [][]string
 }
 
-func (s stubSkillCatalog) GetAlwaysSkills() ([]string, error) {
+func (s *stubSkillCatalog) GetAlwaysSkills() ([]string, error) {
 	return append([]string(nil), s.always...), nil
 }
 
-func (s stubSkillCatalog) LoadSkillsForContext(names []string) (string, error) {
-	_ = names
+func (s *stubSkillCatalog) LoadSkillsForContext(names []string) (string, error) {
+	s.loaded = append(s.loaded, append([]string(nil), names...))
 	return s.body, nil
 }
 
-func (s stubSkillCatalog) BuildSummary() (string, error) {
+func (s *stubSkillCatalog) BuildSummary() (string, error) {
 	return s.summary, nil
 }
 
@@ -85,6 +86,11 @@ func TestPromptBuilder_BuildSystemPrompt_WithoutWorkspaceFiles(t *testing.T) {
 }
 
 func TestPromptBuilder_BuildSystemPrompt_UsesInjectedDependencies(t *testing.T) {
+	skills := &stubSkillCatalog{
+		always:  []string{"foo"},
+		body:    "### Skill: foo\n\nUse foo carefully.",
+		summary: "<skills>\n  <skill available=\"true\">\n   <name>foo</name>\n   <description>test</description>\n   <location>/skills/foo/SKILL.md</location>\n   </skill>\n</skills>",
+	}
 	builder := NewPromptBuilder(
 		t.TempDir(),
 		stubBootstrapReader{docs: map[string]string{
@@ -92,11 +98,7 @@ func TestPromptBuilder_BuildSystemPrompt_UsesInjectedDependencies(t *testing.T) 
 			"SOUL.md":   "soul",
 		}},
 		stubMemoryReader{content: "## Long-term Memory\nprefers Go"},
-		stubSkillCatalog{
-			always:  []string{"foo"},
-			body:    "### Skill: foo\n\nUse foo carefully.",
-			summary: "<skills>\n  <skill available=\"true\">\n   <name>foo</name>\n   <description>test</description>\n   <location>/skills/foo/SKILL.md</location>\n   </skill>\n</skills>",
-		},
+		skills,
 	)
 
 	prompt := builder.BuildSystemPrompt(nil)
@@ -199,6 +201,53 @@ Use foo skill wisely.`)
 	}
 }
 
+func TestPromptBuilder_BuildSystemPrompt_LoadsSelectedSkills(t *testing.T) {
+	root := t.TempDir()
+	builder := newWorkspacePromptBuilder(root)
+	writeTestFile(t, filepath.Join(root, "skills", "foo", "SKILL.md"), "# Foo Skill\n\nUse foo skill wisely.")
+
+	prompt := builder.BuildSystemPrompt([]string{"foo"})
+	if !strings.Contains(prompt, "# Active Skills") {
+		t.Fatalf("system prompt missing active skills section: %s", prompt)
+	}
+	if !strings.Contains(prompt, "Use foo skill wisely.") {
+		t.Fatalf("system prompt missing selected skill body: %s", prompt)
+	}
+}
+
+func TestPromptBuilder_BuildSystemPrompt_MissingSelectedSkillDoesNotFail(t *testing.T) {
+	builder := newWorkspacePromptBuilder(t.TempDir())
+
+	prompt := builder.BuildSystemPrompt([]string{"missing"})
+	if strings.Contains(prompt, "panic") {
+		t.Fatalf("system prompt should degrade gracefully for missing selected skill: %s", prompt)
+	}
+	if strings.Contains(prompt, "### Skill: missing") {
+		t.Fatalf("system prompt should skip missing selected skill: %s", prompt)
+	}
+}
+
+func TestPromptBuilder_BuildSystemPrompt_DeduplicatesAlwaysAndSelectedSkills(t *testing.T) {
+	root := t.TempDir()
+	skills := &stubSkillCatalog{
+		always:  []string{"foo"},
+		body:    "### Skill: foo\n\nUse foo carefully.",
+		summary: "<skills></skills>",
+	}
+	builder := NewPromptBuilder(root, stubBootstrapReader{}, stubMemoryReader{}, skills)
+
+	prompt := builder.BuildSystemPrompt([]string{"foo", "foo"})
+	if count := strings.Count(prompt, "### Skill: foo"); count != 1 {
+		t.Fatalf("selected and always skills should be loaded once, count=%d prompt=%s", count, prompt)
+	}
+	if len(skills.loaded) != 1 {
+		t.Fatalf("LoadSkillsForContext call count = %d, want 1", len(skills.loaded))
+	}
+	if got := strings.Join(skills.loaded[0], ","); got != "foo" {
+		t.Fatalf("loaded skills = %q, want %q", got, "foo")
+	}
+}
+
 func TestPromptBuilder_BuildSystemPrompt_WithSkillsSummary(t *testing.T) {
 	root := t.TempDir()
 	builder := newWorkspacePromptBuilder(root)
@@ -219,7 +268,7 @@ func TestPromptBuilder_BuildSystemPrompt_WithSkillsSummary(t *testing.T) {
 	}
 }
 
-func TestPromptBuilder_BuildMessages_WithHistoryAndSummary(t *testing.T) {
+func TestPromptBuilder_BuildMessages_WithHistoryAndSelectedSkill(t *testing.T) {
 	root := t.TempDir()
 	builder := newWorkspacePromptBuilder(root)
 	writeTestFile(t, filepath.Join(root, "skills", "foo", "SKILL.md"), "# Foo Skill\n\nUse foo skill wisely.")
@@ -246,8 +295,8 @@ func TestPromptBuilder_BuildMessages_WithHistoryAndSummary(t *testing.T) {
 	if !strings.Contains(systemContent, "<name>foo</name>") {
 		t.Fatalf("system message missing skill summary entry: %s", systemContent)
 	}
-	if strings.Contains(systemContent, "Use foo skill wisely.") {
-		t.Fatalf("system message unexpectedly contains full non-always skill body: %s", systemContent)
+	if !strings.Contains(systemContent, "Use foo skill wisely.") {
+		t.Fatalf("system message missing selected skill body: %s", systemContent)
 	}
 
 	historyRole, _ := messages[1]["role"].(string)

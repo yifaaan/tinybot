@@ -50,6 +50,7 @@ type InboundMessage struct {
 	ChatID             string // Chat/channel identifier
 	Content            string // Message text
 	MediaURLs          []string
+	SelectedSkills     []string // Optional per-turn skill activation
 	Metadata           map[string]any
 	CreatedAt          time.Time
 	SessionKeyOverride *string // Optional override for thread-scoped sessions
