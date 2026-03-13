@@ -9,14 +9,21 @@ import (
 	"tinybot/internal/domain/model"
 )
 
+type cronContextKey string
+
+const cronRepositoryContextKey cronContextKey = "cron-repository"
+
 type fakeCronRepo struct {
-	jobs    []model.CronJob
-	saved   []model.CronJob
-	listErr error
-	saveErr error
+	jobs        []model.CronJob
+	saved       []model.CronJob
+	listErr     error
+	saveErr     error
+	lastListCtx context.Context
+	lastSaveCtx context.Context
 }
 
-func (r *fakeCronRepo) ListJobs(_ context.Context) ([]model.CronJob, error) {
+func (r *fakeCronRepo) ListJobs(ctx context.Context) ([]model.CronJob, error) {
+	r.lastListCtx = ctx
 	if r.listErr != nil {
 		return nil, r.listErr
 	}
@@ -26,7 +33,8 @@ func (r *fakeCronRepo) ListJobs(_ context.Context) ([]model.CronJob, error) {
 	return out, nil
 }
 
-func (r *fakeCronRepo) SaveJobs(jobs []model.CronJob) error {
+func (r *fakeCronRepo) SaveJobs(ctx context.Context, jobs []model.CronJob) error {
+	r.lastSaveCtx = ctx
 	if r.saveErr != nil {
 		return r.saveErr
 	}
@@ -36,12 +44,14 @@ func (r *fakeCronRepo) SaveJobs(jobs []model.CronJob) error {
 }
 
 type fakeCronAgent struct {
-	resp  string
-	err   error
-	calls []struct{ sessionKey, content string }
+	resp    string
+	err     error
+	lastCtx context.Context
+	calls   []struct{ sessionKey, content string }
 }
 
 func (a *fakeCronAgent) ProcessDirect(ctx context.Context, sessionKey string, content string) (string, error) {
+	a.lastCtx = ctx
 	a.calls = append(a.calls, struct{ sessionKey, content string }{sessionKey, content})
 	return a.resp, a.err
 }
@@ -159,5 +169,50 @@ func TestService_TriggerOnce_RecordsAgentError(t *testing.T) {
 	}
 	if got.NextRunAt == nil {
 		t.Fatal("NextRunAt = nil, want non-nil")
+	}
+}
+
+func TestService_TriggerOnce_PropagatesContextToRepoAndAgent(t *testing.T) {
+	past := time.Now().Add(-1 * time.Minute)
+	repo := &fakeCronRepo{
+		jobs: []model.CronJob{{
+			ID:         "job-ctx",
+			Name:       "ctx-job",
+			Enabled:    true,
+			Prompt:     "check context",
+			SessionKey: "cron:job-ctx",
+			Schedule:   model.CronSchedule{Kind: model.CronScheduleEvery, EverySeconds: 60},
+			NextRunAt:  &past,
+		}},
+	}
+	agent := &fakeCronAgent{resp: "done"}
+
+	svc, err := NewService(repo, agent)
+	if err != nil {
+		t.Fatalf("NewService() error: %v", err)
+	}
+
+	ctx := context.WithValue(context.Background(), cronRepositoryContextKey, "ctx-value")
+	if _, err := svc.TriggerOnce(ctx); err != nil {
+		t.Fatalf("TriggerOnce() error: %v", err)
+	}
+
+	if repo.lastListCtx == nil {
+		t.Fatal("lastListCtx = nil, want non-nil")
+	}
+	if got := repo.lastListCtx.Value(cronRepositoryContextKey); got != "ctx-value" {
+		t.Fatalf("lastListCtx value = %v, want %q", got, "ctx-value")
+	}
+	if repo.lastSaveCtx == nil {
+		t.Fatal("lastSaveCtx = nil, want non-nil")
+	}
+	if got := repo.lastSaveCtx.Value(cronRepositoryContextKey); got != "ctx-value" {
+		t.Fatalf("lastSaveCtx value = %v, want %q", got, "ctx-value")
+	}
+	if agent.lastCtx == nil {
+		t.Fatal("agent.lastCtx = nil, want non-nil")
+	}
+	if got := agent.lastCtx.Value(cronRepositoryContextKey); got != "ctx-value" {
+		t.Fatalf("agent.lastCtx value = %v, want %q", got, "ctx-value")
 	}
 }

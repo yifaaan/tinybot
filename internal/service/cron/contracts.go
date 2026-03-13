@@ -19,7 +19,7 @@ import (
 // Compatibility: keeps the current Go JSON-backed cron store behavior while narrowing the service boundary.
 type Repository interface {
 	ListJobs(ctx context.Context) ([]model.CronJob, error)
-	SaveJobs(jobs []model.CronJob) error
+	SaveJobs(ctx context.Context, jobs []model.CronJob) error
 }
 
 // AgentTurner runs one direct chat turn on behalf of a cron job.

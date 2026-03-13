@@ -858,24 +858,39 @@ Where:
 - `internal/service/cron/service.go`
 - `internal/repository/cronrepo/file_cron_repo.go`
 
-### Step 6: wire the message tool the same way as Python nanobot
+### Step 6 update: split and wire the message tool by runtime mode
 
-What to do:
+Current state:
 
-- set the message tool callback to publish through the transport bus
-- update message tool channel/chat context per inbound message when needed
+- `internal/app/bootstrap.go` keeps a gateway-independent core tool set in `buildCoreToolRegistry(...)`
+- `internal/app/gateway.go` registers `message` only for gateway mode and wires it to `PublishOutbound(...)`
+- `internal/service/chat/service.go` updates message-tool channel/chat context per inbound message before the tool loop runs
+- tests now cover both halves of the split:
+  - base/direct tool registry does not expose `message`
+  - gateway runtime wiring publishes `message` tool output through the outbound bus
 
-Why next:
+Why this split exists:
 
-- Python `AgentLoop` updates `MessageTool` context before each turn
-- current Go wiring creates the tool but does not yet connect runtime bus delivery
+- direct CLI uses `ProcessDirect(...)` and writes the final assistant reply straight to stdout
+- direct CLI does not own an outbound transport bus or a channel manager, so exposing `message` there would advertise a tool that cannot actually deliver anything
+- gateway mode owns the runtime pieces that can deliver outbound messages: message bus, gateway loop, and channel manager
+- keeping `message` runtime-scoped preserves a clean boundary: shared app/core code owns safe common tools, gateway owns transport-dependent tools
 
 Where:
 
 - `internal/app/bootstrap.go`
+  - `buildCoreToolRegistry(...)` defines the base tool set used by direct chat and shared app setup
 - `internal/app/gateway.go`
+  - `NewGatewayApp(...)` registers `message` and connects it to the outbound bus
 - `internal/service/chat/service.go`
+  - `ProcessMessage(...)` injects the current inbound channel/chat into the tool runtime before executing tool calls
 - `internal/adapters/tool/message_tool.go`
+  - `Execute(...)` uses explicit `channel/chat_id` when provided, otherwise falls back to the current runtime context
+
+Rule for future channels:
+
+- when adding Telegram, WhatsApp, or other long-running transports, keep `message` registration in the runtime assembly that owns outbound delivery
+- do not move `message` back into the shared core registry unless the base app also grows a real outbound transport contract
 
 ## 8. Current Behavior Differences Versus `nanobot`
 
@@ -887,14 +902,16 @@ These are the main gaps or intentional differences visible today.
   - This is useful for CLI, cron, and heartbeat integration.
 - Go persists assistant tool-call traces and tool-result traces in sessions.
   - Python currently saves a smaller conversation trace.
+- `message` is runtime-scoped in Go.
+  - base/direct app setup exposes only transport-safe core tools
+  - gateway mode adds `message` and routes it through the outbound bus
+  - this avoids exposing a send-only tool in modes that have no outbound delivery path
 
 ### Missing compatibility pieces
 
 - cron only supports `every`
   - Python also supports `at` and cron expressions
 - cron does not yet model delivery payloads like `deliver/channel/to`
-- message tool runtime wiring is incomplete
-  - the tool exists, but the bus callback and per-message context update are not fully integrated
 - chat-facing session repository methods still do not accept `context.Context`
 
 ### Lower-risk differences to accept for now

@@ -65,6 +65,19 @@ func TestFileCronRepository_ListJobs_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestFileCronRepository_ListJobs_CanceledContext(t *testing.T) {
+	workspace := newTestWorkspace(t)
+	repo := NewFileCronRepository(workspace)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := repo.ListJobs(ctx)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
 func TestFileCronRepository_SaveJobs_ThenListJobs(t *testing.T) {
 	workspace := newTestWorkspace(t)
 	repo := NewFileCronRepository(workspace)
@@ -86,7 +99,7 @@ func TestFileCronRepository_SaveJobs_ThenListJobs(t *testing.T) {
 			NextRunAt: &next,
 		},
 	}
-	if err := repo.SaveJobs(want); err != nil {
+	if err := repo.SaveJobs(context.Background(), want); err != nil {
 		t.Fatalf("SaveJobs() error: %v", err)
 	}
 	got, err := repo.ListJobs(context.Background())
@@ -107,5 +120,18 @@ func TestFileCronRepository_SaveJobs_ThenListJobs(t *testing.T) {
 	}
 	if got[0].Schedule.EverySeconds != want[0].Schedule.EverySeconds {
 		t.Fatalf("got[0].Schedule.EverySeconds = %d, want %d", got[0].Schedule.EverySeconds, want[0].Schedule.EverySeconds)
+	}
+}
+
+func TestFileCronRepository_SaveJobs_CanceledContext(t *testing.T) {
+	workspace := newTestWorkspace(t)
+	repo := NewFileCronRepository(workspace)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := repo.SaveJobs(ctx, []model.CronJob{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
 	}
 }

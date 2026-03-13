@@ -31,7 +31,9 @@ func NewFileCronRepository(workspace string) *FileCronRepository {
 
 // ListJobs loads and validates the current cron job store.
 func (r *FileCronRepository) ListJobs(ctx context.Context) ([]model.CronJob, error) {
-	_ = ctx
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("cron repo list jobs: %w", err)
+	}
 
 	data, err := os.ReadFile(r.path)
 	if err != nil {
@@ -43,6 +45,9 @@ func (r *FileCronRepository) ListJobs(ctx context.Context) ([]model.CronJob, err
 	if len(data) == 0 {
 		return []model.CronJob{}, nil
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("cron repo list jobs: %w", err)
+	}
 
 	var jobs []model.CronJob
 	if err := json.Unmarshal(data, &jobs); err != nil {
@@ -50,6 +55,9 @@ func (r *FileCronRepository) ListJobs(ctx context.Context) ([]model.CronJob, err
 	}
 
 	for _, job := range jobs {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("cron repo list jobs: %w", err)
+		}
 		if err := job.Validate(); err != nil {
 			return nil, fmt.Errorf("cron repo validate job %s: %w", job.ID, err)
 		}
@@ -58,8 +66,14 @@ func (r *FileCronRepository) ListJobs(ctx context.Context) ([]model.CronJob, err
 }
 
 // SaveJobs validates and persists the full cron job slice.
-func (r *FileCronRepository) SaveJobs(jobs []model.CronJob) error {
+func (r *FileCronRepository) SaveJobs(ctx context.Context, jobs []model.CronJob) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cron repo save jobs: %w", err)
+	}
 	for _, job := range jobs {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("cron repo save jobs: %w", err)
+		}
 		if err := job.Validate(); err != nil {
 			return fmt.Errorf("cron repo validate job %s: %w", job.ID, err)
 		}
@@ -68,9 +82,15 @@ func (r *FileCronRepository) SaveJobs(jobs []model.CronJob) error {
 	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
 		return fmt.Errorf("cron repo mkdir: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cron repo save jobs: %w", err)
+	}
 	data, err := json.MarshalIndent(jobs, "", "  ")
 	if err != nil {
 		return fmt.Errorf("cron repo marshal: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cron repo save jobs: %w", err)
 	}
 	if err := os.WriteFile(r.path, data, 0o644); err != nil {
 		return fmt.Errorf("cron repo write: %w", err)

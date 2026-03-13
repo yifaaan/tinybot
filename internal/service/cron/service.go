@@ -73,7 +73,7 @@ func (s *Service) TriggerOnce(ctx context.Context) (string, error) {
 	if !changed {
 		return "", nil
 	}
-	if err := s.repo.SaveJobs(jobs); err != nil {
+	if err := s.repo.SaveJobs(ctx, jobs); err != nil {
 		return "", err
 	}
 	return "", nil

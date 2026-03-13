@@ -203,8 +203,8 @@ func runCronAdd(args []string, out io.Writer, repo cronservice.Repository) error
 	if prompt == "" {
 		return fmt.Errorf("cron add: prompt is required")
 	}
-
-	jobs, err := repo.ListJobs(context.Background())
+	ctx := context.Background()
+	jobs, err := repo.ListJobs(ctx)
 	if err != nil {
 		return fmt.Errorf("cron add list jobs: %w", err)
 	}
@@ -232,7 +232,7 @@ func runCronAdd(args []string, out io.Writer, repo cronservice.Repository) error
 	}
 
 	jobs = append(jobs, job)
-	if err := repo.SaveJobs(jobs); err != nil {
+	if err := repo.SaveJobs(ctx, jobs); err != nil {
 		return fmt.Errorf("cron add save jobs: %w", err)
 	}
 	_, _ = fmt.Fprintf(out, "Added cron job %s (%s)\n", job.Name, job.ID)
@@ -271,7 +271,8 @@ func runCronRemove(args []string, out io.Writer, repo cronservice.Repository) er
 		return fmt.Errorf("usage: tinybot cron remove <job_id>")
 	}
 
-	jobs, err := repo.ListJobs(context.Background())
+	ctx := context.Background()
+	jobs, err := repo.ListJobs(ctx)
 	if err != nil {
 		return fmt.Errorf("cron add list jobs: %w", err)
 	}
@@ -288,7 +289,7 @@ func runCronRemove(args []string, out io.Writer, repo cronservice.Repository) er
 	if !found {
 		return fmt.Errorf("cron remove jobs: not found job, id=%s", jobID)
 	}
-	if err := repo.SaveJobs(jobs); err != nil {
+	if err := repo.SaveJobs(ctx, jobs); err != nil {
 		return err
 	}
 	return nil
