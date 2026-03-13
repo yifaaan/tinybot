@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"strings"
 	"time"
-	"tinybot/internal/ports"
 )
 
 // ExecTool is tool to execute shell commands.
@@ -23,8 +22,8 @@ func NewExecTool(timeout int, workingDir string) *ExecTool {
 	return &ExecTool{timeout: timeout, workingDir: workingDir}
 }
 
-func (t *ExecTool) Spec() ports.ToolSpec {
-	return ports.ToolSpec{
+func (t *ExecTool) Spec() ToolSpec {
+	return ToolSpec{
 		Name:        "exec",
 		Description: "Execute a shell command and return its output. Use with caution.",
 		Parameters: json.RawMessage(`{

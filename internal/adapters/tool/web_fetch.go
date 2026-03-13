@@ -13,7 +13,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"tinybot/internal/ports"
 
 	readability "github.com/go-shiori/go-readability"
 )
@@ -75,8 +74,8 @@ func (t *WebFetchTool) Description() string {
 	return "Fetch URL and extract readable content (HTML to markdown/text)."
 }
 
-func (t *WebFetchTool) Spec() ports.ToolSpec {
-	return ports.ToolSpec{
+func (t *WebFetchTool) Spec() ToolSpec {
+	return ToolSpec{
 		Name:        t.Name(),
 		Description: t.Description(),
 		Parameters: json.RawMessage(`{

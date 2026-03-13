@@ -7,3 +7,5 @@ NANOBOT_DESIGN_SPEC.md
 test.md
 .tinybot/
 config.json
+.cache
+.planning

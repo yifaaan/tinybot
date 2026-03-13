@@ -5,21 +5,22 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"tinybot/internal/adapters/bus"
-	"tinybot/internal/adapters/channel"
-	"tinybot/internal/adapters/repository"
 
-	"tinybot/internal/usecase/agent"
-	"tinybot/internal/usecase/cron"
-	"tinybot/internal/usecase/heartbeat"
+	"tinybot/internal/repository/cronrepo"
+	cronservice "tinybot/internal/service/cron"
+	heartbeatservice "tinybot/internal/service/heartbeat"
+	transportbus "tinybot/internal/transport/bus"
+	transportchannel "tinybot/internal/transport/channel"
+	transportgateway "tinybot/internal/transport/gateway"
+	transportruntime "tinybot/internal/transport/runtime"
 )
 
 type GatewayApp struct {
-	Bus       *bus.MemoryBus
-	Loop      *agent.Loop
-	Manager   *channel.ChannelManager
-	Heartbeat *heartbeat.Service
-	Cron      *cron.Service
+	Bus       *transportbus.MemoryBus
+	Loop      *transportgateway.Loop
+	Manager   *transportchannel.ChannelManager
+	Heartbeat *transportruntime.HeartbeatRunner
+	Cron      *transportruntime.CronRunner
 }
 
 func NewGatewayApp(workspace string, input io.Reader, output io.Writer) (*GatewayApp, error) {
@@ -28,33 +29,40 @@ func NewGatewayApp(workspace string, input io.Reader, output io.Writer) (*Gatewa
 		return nil, fmt.Errorf("new gateway app: %w", err)
 	}
 
-	bs := bus.NewMemoryBus(16)
-	lp := agent.NewLoop(app.ChatUseCase, bs)
-	manager := channel.NewChannelManager(bs)
-	heartbeatSvc := heartbeat.NewService(workspace, app.ChatUseCase, app.Config.Heartbeat.IntervalSeconds, app.Config.Heartbeat.Enabled)
-
-	cronRepo := repository.NewFileCronRepository(workspace)
-	cronSvc, err := cron.NewService(cronRepo, app.ChatUseCase, 30)
+	bs := transportbus.NewMemoryBus(16)
+	lp := transportgateway.NewLoop(app.ChatService, bs)
+	manager := transportchannel.NewChannelManager(bs)
+	heartbeatSvc := heartbeatservice.NewService(workspace, app.ChatService)
+	heartbeatRunner, err := transportruntime.NewHeartbeatRunner(heartbeatSvc, app.Config.Heartbeat.IntervalSeconds, app.Config.Heartbeat.Enabled)
 	if err != nil {
 		return nil, err
 	}
-	// 根据配置注册 ConsoleChannel
+
+	cronRepo := cronrepo.NewFileCronRepository(workspace)
+	cronSvc, err := cronservice.NewService(cronRepo, app.ChatService)
+	if err != nil {
+		return nil, err
+	}
+	cronRunner, err := transportruntime.NewCronRunner(cronSvc, 30)
+	if err != nil {
+		return nil, err
+	}
 	if app.Config.Channels.Console.Enabled {
-		consoleCfg := channel.ConsoleChannelConfig{
+		consoleCfg := transportchannel.ConsoleChannelConfig{
 			ChatID:     app.Config.Channels.Console.ChatID,
 			SenderID:   app.Config.Channels.Console.SenderID,
 			Prompt:     app.Config.Channels.Console.Prompt,
 			ShowPrefix: app.Config.Channels.Console.ShowPrefix,
 		}
-		consoleCh := channel.NewConsoleChannel(bs, consoleCfg, input, output)
+		consoleCh := transportchannel.NewConsoleChannel(bs, consoleCfg, input, output)
 		manager.RegisterChannel(consoleCh)
 	}
 	return &GatewayApp{
 		Bus:       bs,
 		Loop:      lp,
 		Manager:   manager,
-		Heartbeat: heartbeatSvc,
-		Cron:      cronSvc,
+		Heartbeat: heartbeatRunner,
+		Cron:      cronRunner,
 	}, nil
 }
 

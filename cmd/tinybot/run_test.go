@@ -2,10 +2,30 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+type fakeDirectChatProcessor struct {
+	reply string
+	err   error
+	last  struct {
+		sessionKey string
+		content    string
+	}
+}
+
+func (f *fakeDirectChatProcessor) ProcessDirect(ctx context.Context, sessionKey string, content string) (string, error) {
+	f.last.sessionKey = sessionKey
+	f.last.content = content
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.reply, nil
+}
 
 func TestRun_NoArgs_PrintsHelp(t *testing.T) {
 	var out bytes.Buffer
@@ -63,6 +83,54 @@ func TestRun_Status_ShowsMissingFilesBeforeOnboard(t *testing.T) {
 	}
 	if !strings.Contains(text, filepath.Join("memory", "MEMORY.md")) {
 		t.Fatalf("status output missing memory file: %s", text)
+	}
+}
+
+func TestRun_DirectChat_UsesChatService(t *testing.T) {
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	var out bytes.Buffer
+	processor := &fakeDirectChatProcessor{reply: "pong"}
+
+	oldFactory := newDirectChatProcessor
+	newDirectChatProcessor = func(workspace string) (directChatProcessor, error) {
+		return processor, nil
+	}
+	defer func() {
+		newDirectChatProcessor = oldFactory
+	}()
+
+	if err := run([]string{"ping"}, &out, workspace); err != nil {
+		t.Fatalf("run(direct chat) error: %v", err)
+	}
+	if out.String() != "pong\n" {
+		t.Fatalf("direct chat output = %q, want %q", out.String(), "pong\n")
+	}
+	if processor.last.sessionKey != "cli:direct" {
+		t.Fatalf("sessionKey = %q, want %q", processor.last.sessionKey, "cli:direct")
+	}
+	if processor.last.content != "ping" {
+		t.Fatalf("content = %q, want %q", processor.last.content, "ping")
+	}
+}
+
+func TestRun_DirectChat_WrapsProcessorError(t *testing.T) {
+	var out bytes.Buffer
+	processor := &fakeDirectChatProcessor{err: errors.New("boom")}
+
+	oldFactory := newDirectChatProcessor
+	newDirectChatProcessor = func(workspace string) (directChatProcessor, error) {
+		return processor, nil
+	}
+	defer func() {
+		newDirectChatProcessor = oldFactory
+	}()
+
+	err := run([]string{"ping"}, &out, filepath.Join(t.TempDir(), "workspace"))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to process direct message") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

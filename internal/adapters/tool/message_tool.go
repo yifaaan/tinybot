@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"tinybot/internal/domain/model"
-	"tinybot/internal/ports"
 )
 
 type SendMessageCallback func(ctx context.Context, msg model.OutboundMessage) error
@@ -43,8 +42,8 @@ func (t *MessageTool) Description() string {
 	return "Send a message to the user. Use this when you want to communicate something."
 }
 
-func (t *MessageTool) Spec() ports.ToolSpec {
-	return ports.ToolSpec{
+func (t *MessageTool) Spec() ToolSpec {
+	return ToolSpec{
 		Name:        t.Name(),
 		Description: t.Description(),
 		Parameters: json.RawMessage(`{

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"tinybot/internal/ports"
 	"tinybot/internal/utils"
 )
 
@@ -21,8 +20,8 @@ func NewListDirTool(workspace string) *ListDirTool {
 	return &ListDirTool{workspace: workspace}
 }
 
-func (t *ListDirTool) Spec() ports.ToolSpec {
-	return ports.ToolSpec{
+func (t *ListDirTool) Spec() ToolSpec {
+	return ToolSpec{
 		Name:        "list_dir",
 		Description: "List the contents of a directory.",
 		Parameters: json.RawMessage(`{

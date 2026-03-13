@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"tinybot/internal/ports"
 )
 
 const (
@@ -71,8 +70,8 @@ func (t *WebSearchTool) Description() string {
 	return "Search Google News without an API key. Returns titles, URLs, sources, and snippets."
 }
 
-func (t *WebSearchTool) Spec() ports.ToolSpec {
-	return ports.ToolSpec{
+func (t *WebSearchTool) Spec() ToolSpec {
+	return ToolSpec{
 		Name:        t.Name(),
 		Description: t.Description(),
 		Parameters: json.RawMessage(`{

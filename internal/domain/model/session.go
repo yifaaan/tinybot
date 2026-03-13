@@ -9,6 +9,7 @@ const (
 	RoleUser      = "user"
 	RoleAssistant = "assistant"
 	RoleTool      = "tool"
+	RoleSystem    = "system"
 )
 
 type Message struct {

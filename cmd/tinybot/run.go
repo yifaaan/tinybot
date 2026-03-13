@@ -9,12 +9,23 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"tinybot/internal/adapters/repository"
 	"tinybot/internal/app"
 	"tinybot/internal/domain/model"
-	"tinybot/internal/ports"
-	"tinybot/internal/usecase/cron"
+	"tinybot/internal/repository/cronrepo"
+	cronservice "tinybot/internal/service/cron"
 )
+
+type directChatProcessor interface {
+	ProcessDirect(ctx context.Context, sessionKey string, content string) (string, error)
+}
+
+var newDirectChatProcessor = func(workspace string) (directChatProcessor, error) {
+	appInstance, err := app.NewApp(workspace)
+	if err != nil {
+		return nil, err
+	}
+	return appInstance.ChatService, nil
+}
 
 // run is the testable entry point for the CLI.
 //
@@ -95,7 +106,7 @@ func runStatus(out io.Writer, workspace string) error {
 }
 
 func runDirectChat(args []string, out io.Writer, workspace string) error {
-	appInstance, err := app.NewApp(workspace)
+	processor, err := newDirectChatProcessor(workspace)
 	if err != nil {
 		return fmt.Errorf("failed to create app: %w", err)
 	}
@@ -104,7 +115,7 @@ func runDirectChat(args []string, out io.Writer, workspace string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	reply, err := appInstance.ChatUseCase.ProcessDirect(ctx, "cli:direct", input)
+	reply, err := processor.ProcessDirect(ctx, "cli:direct", input)
 	if err != nil {
 		return fmt.Errorf("failed to process direct message: %w", err)
 	}
@@ -134,7 +145,7 @@ func runCron(args []string, out io.Writer, workspace string) error {
 		return nil
 	}
 
-	repo := repository.NewFileCronRepository(workspace)
+	repo := cronrepo.NewFileCronRepository(workspace)
 
 	switch strings.TrimSpace(args[0]) {
 	case "list":
@@ -150,7 +161,7 @@ func runCron(args []string, out io.Writer, workspace string) error {
 	}
 }
 
-func runCronList(out io.Writer, repo ports.CronRepository) error {
+func runCronList(out io.Writer, repo cronservice.Repository) error {
 	jobs, err := repo.ListJobs(context.Background())
 	if err != nil {
 		return fmt.Errorf("cron list: %w", err)
@@ -173,7 +184,7 @@ func runCronList(out io.Writer, repo ports.CronRepository) error {
 }
 
 // tinybot cron add <name> <every_seconds> <prompt>
-func runCronAdd(args []string, out io.Writer, repo ports.CronRepository) error {
+func runCronAdd(args []string, out io.Writer, repo cronservice.Repository) error {
 	if len(args) < 3 {
 		return fmt.Errorf("usage: tinybot cron add <name> <every_seconds> <prompt>")
 	}
@@ -228,13 +239,13 @@ func runCronAdd(args []string, out io.Writer, repo ports.CronRepository) error {
 	return nil
 }
 
-func runCronRunOnce(out io.Writer, workspace string, repo ports.CronRepository) error {
+func runCronRunOnce(out io.Writer, workspace string, repo cronservice.Repository) error {
 	appInstance, err := app.NewApp(workspace)
 	if err != nil {
 		return fmt.Errorf("cron run-once new app: %w", err)
 	}
 
-	svc, err := cron.NewService(repo, appInstance.ChatUseCase, 30)
+	svc, err := cronservice.NewService(repo, appInstance.ChatService)
 	if err != nil {
 		return err
 	}
@@ -255,7 +266,7 @@ func runCronRunOnce(out io.Writer, workspace string, repo ports.CronRepository) 
 }
 
 // tinybot cron remove <job_id>
-func runCronRemove(args []string, out io.Writer, repo ports.CronRepository) error {
+func runCronRemove(args []string, out io.Writer, repo cronservice.Repository) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: tinybot cron remove <job_id>")
 	}

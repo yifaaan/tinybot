@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"tinybot/internal/ports"
 	"tinybot/internal/utils"
 )
 
@@ -20,8 +19,8 @@ func NewWriteFileTool(workspace string) *WriteFileTool {
 	return &WriteFileTool{workspace: workspace}
 }
 
-func (t *WriteFileTool) Spec() ports.ToolSpec {
-	return ports.ToolSpec{
+func (t *WriteFileTool) Spec() ToolSpec {
+	return ToolSpec{
 		Name:        "write_file",
 		Description: "Write content to a file at the given path. Creates parent directories if needed.",
 		Parameters: json.RawMessage(`{

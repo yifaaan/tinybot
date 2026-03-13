@@ -3,21 +3,20 @@ package tool
 import (
 	"context"
 	"fmt"
-	"tinybot/internal/ports"
 )
 
 type Registry struct {
-	tools map[string]ports.Tool
+	tools map[string]Tool
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
-		tools: make(map[string]ports.Tool),
+		tools: make(map[string]Tool),
 	}
 }
 
 // Register a tool in the registry.
-func (r *Registry) Register(tool ports.Tool) {
+func (r *Registry) Register(tool Tool) {
 	if _, exists := r.tools[tool.Spec().Name]; exists {
 		return
 	}
@@ -30,7 +29,7 @@ func (r *Registry) Unregister(name string) {
 }
 
 // Get a tool from the registry.
-func (r *Registry) Get(name string) (ports.Tool, bool) {
+func (r *Registry) Get(name string) (Tool, bool) {
 	tool, exists := r.tools[name]
 	return tool, exists
 }

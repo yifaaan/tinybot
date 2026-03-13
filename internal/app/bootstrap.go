@@ -3,19 +3,20 @@ package app
 import (
 	"fmt"
 	"strings"
+
 	"tinybot/internal/adapters/provider"
-	"tinybot/internal/adapters/repository"
 	"tinybot/internal/adapters/tool"
+	workspaceadapter "tinybot/internal/adapters/workspace"
 	"tinybot/internal/domain/model"
-	"tinybot/internal/ports"
-	"tinybot/internal/usecase/chat"
+	"tinybot/internal/repository/sessionrepo"
+	chatservice "tinybot/internal/service/chat"
 
 	"github.com/joho/godotenv"
 )
 
 type App struct {
-	ChatUseCase *chat.UseCase
-	SessionRepo ports.SessionRepository
+	ChatService *chatservice.Service
+	SessionRepo chatservice.SessionRepository
 	Config      *Config
 }
 
@@ -32,7 +33,7 @@ func NewApp(workspace string) (*App, error) {
 		return nil, err
 	}
 
-	sessionRepo := repository.NewFileSessionRepository(workspace)
+	sessionRepo := sessionrepo.NewFileSessionRepository(workspace)
 	llm, err := newLLMClientFromConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -72,20 +73,36 @@ func NewApp(workspace string) (*App, error) {
 	messageTool := tool.NewMessageTool(nil, model.ChannelCLI, "")
 	toolRegistry.Register(messageTool)
 
-	chatUseCase, err := chat.NewUseCase(sessionRepo, llm, toolRegistry, cfg.Agents.MaxToolIterations)
+	chatService, err := chatservice.NewService(
+		sessionRepo,
+		llm,
+		toolRegistry,
+		newPromptBuilder(workspace),
+		cfg.Agents.MaxToolIterations,
+		cfg.Agents.MaxTokens,
+		float32(cfg.Agents.Temperature),
+	)
 	if err != nil {
 		return nil, err
 	}
-	chatUseCase.SetContextBuilder(chat.NewContextBuilder(workspace))
 
 	return &App{
-		ChatUseCase: chatUseCase,
+		ChatService: chatService,
 		SessionRepo: sessionRepo,
 		Config:      cfg,
 	}, nil
 }
 
-func newLLMClientFromConfig(cfg *Config) (ports.LLMClient, error) {
+func newPromptBuilder(workspace string) *chatservice.Builder {
+	return chatservice.NewPromptBuilder(
+		workspace,
+		workspaceadapter.NewBootstrapReader(workspace),
+		workspaceadapter.NewMemoryStore(workspace),
+		workspaceadapter.NewSkillsLoader(workspace, ""),
+	)
+}
+
+func newLLMClientFromConfig(cfg *Config) (chatservice.CompletionClient, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("llm config is nil")
 	}

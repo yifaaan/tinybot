@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"tinybot/internal/ports"
 	"tinybot/internal/utils"
 )
 
@@ -21,8 +20,8 @@ func NewReadFileTool(workspace string) *ReadFileTool {
 	return &ReadFileTool{workspace: workspace}
 }
 
-func (t *ReadFileTool) Spec() ports.ToolSpec {
-	return ports.ToolSpec{
+func (t *ReadFileTool) Spec() ToolSpec {
+	return ToolSpec{
 		Name:        "read_file",
 		Description: "Read a file and return its content.",
 		Parameters: json.RawMessage(`{

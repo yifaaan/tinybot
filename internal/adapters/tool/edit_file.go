@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"tinybot/internal/ports"
 	"tinybot/internal/utils"
 )
 
@@ -20,8 +19,8 @@ func NewEditFileTool(workspace string) *EditFileTool {
 	return &EditFileTool{workspace: workspace}
 }
 
-func (t *EditFileTool) Spec() ports.ToolSpec {
-	return ports.ToolSpec{
+func (t *EditFileTool) Spec() ToolSpec {
+	return ToolSpec{
 		Name:        "edit_file",
 		Description: "Edit a file and return its content.",
 		Parameters: json.RawMessage(`{
