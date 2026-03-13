@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"tinybot/internal/domain/model"
 )
 
@@ -30,6 +31,7 @@ func (t *MessageTool) SetContext(channel model.Channel, chatID string) {
 	t.defaultChatID = chatID
 }
 
+// SetSendMessageCallback 把真正的外发动作接到 transport bus 或其他发送器上
 func (t *MessageTool) SetSendMessageCallback(callback SendMessageCallback) {
 	t.sendMessageCallback = callback
 }
@@ -68,6 +70,10 @@ func (t *MessageTool) Spec() ToolSpec {
 }
 
 func (t *MessageTool) Execute(ctx context.Context, params map[string]any) (string, error) {
+	content, ok := params["content"].(string)
+	if !ok || strings.TrimSpace(content) == "" {
+		return "", errors.New("send message: content is required")
+	}
 	channel, ok := params["channel"].(string)
 	if !ok || channel == "" {
 		channel = string(t.defaultChannel)
@@ -80,6 +86,10 @@ func (t *MessageTool) Execute(ctx context.Context, params map[string]any) (strin
 		return "", errors.New("send message: channel or chatID is empty")
 	}
 
+	// direct chat模式下没有OutboundMessage bus
+	if t.sendMessageCallback == nil {
+		return "", errors.New("send message: callback is not configured")
+	}
 	msg := model.OutboundMessage{
 		Channel: model.Channel(channel),
 		ChatID:  chatID,

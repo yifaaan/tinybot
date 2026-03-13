@@ -1,3 +1,14 @@
+// Package chat 提供单次 agent turn 的核心编排逻辑。
+//
+// 这一层真正负责的事情只有一条主链路：
+// - 载入 session
+// - 组 prompt
+// - 调模型
+// - 跑 tool loop
+// - 保存 trace
+//
+// direct chat、gateway、cron、heartbeat 最终都应复用这条业务路径，
+// 区别只在“谁触发了一次 turn”，而不是“turn 内部怎么做”。
 package chat
 
 import (
@@ -16,19 +27,19 @@ const (
 	defaultMaxTokens     = 8192
 )
 
-// Service orchestrates one chat turn for direct calls and inbound transport messages.
+// Service 负责完成一次完整的 agent 对话回合。
 //
-// Responsibilities:
-//   - load or create the session for the current thread
-//   - build prompt messages from history and workspace context
-//   - call the LLM, including iterative tool-call handling
-//   - append user/tool/assistant trace items to the session and persist them
+// 它的职责是稳定地执行下面这条主链路：
+// 1. 载入或创建 session
+// 2. 组装 prompt
+// 3. 调用模型
+// 4. 处理工具循环
+// 5. 保存本轮 trace
 //
-// Inputs: domain inbound messages or direct chat content plus an optional explicit session key.
-// Outputs: a domain outbound message or plain text for direct chat helpers.
-// State changes: the session grows with user, assistant, and tool messages for every processed turn.
-// Side effects: calls the LLM adapter, executes tools, and writes session storage through the repository.
-// Compatibility: this preserves the current Go direct-chat loop and keeps the session-key override behavior that is intentionally different from Python nanobot.
+// 为什么要把这一层单独抽成 service：
+// - transport 层只负责“谁触发了一次 turn”，不应该重复实现 turn 的内部细节
+// - direct chat 和 bus 驱动消息应该共用同一套行为，否则后续很容易发生漂移
+// - 这也是最值得优先被测试保护的核心路径
 type Service struct {
 	sessions      SessionRepository
 	llm           CompletionClient
@@ -39,13 +50,23 @@ type Service struct {
 	temperature   float32
 }
 
-// NewService builds a chat service from explicit service-layer dependencies.
+// NewService 构造一个可执行单轮对话的 chat service。
 //
-// Inputs: repository, completion client, tool executor, prompt builder, and runtime limits.
-// Outputs: a ready-to-use Service or an error when a required dependency is missing.
-// State changes: none during construction.
-// Side effects: none during construction.
-// Compatibility: the dependency set matches the existing Go MVP while making the service boundary narrower than the old ports package.
+// 参数：
+// - sessions: session 持久化边界
+// - llm: 模型调用边界
+// - tools: 工具定义与执行边界
+// - prompts: prompt 装配边界
+// - maxIterations: 最大工具循环次数，<= 0 时使用默认值
+// - maxTokens: 单次模型输出 token 上限，<= 0 时使用默认值
+// - temperature: 模型采样温度
+//
+// 返回：
+// - *Service: 初始化好的 service
+// - error: 依赖缺失时返回错误
+//
+// 这里优先在构造期校验依赖，是为了把“装配错误”和“运行时错误”区分开。
+// 对 CLI 程序来说，启动时就失败，通常比跑到中途才 nil pointer 更容易排查。
 func NewService(sessions SessionRepository, llm CompletionClient, tools ToolExecutor, prompts PromptBuilder, maxIterations int, maxTokens int, temperature float32) (*Service, error) {
 	if sessions == nil {
 		return nil, errors.New("chat service: session repository is required")
@@ -77,19 +98,31 @@ func NewService(sessions SessionRepository, llm CompletionClient, tools ToolExec
 	}, nil
 }
 
+// traceMessage 是本轮对话的临时痕迹结构。
+//
+// 为什么单独有一层 trace，而不是边执行边立刻写入 session：
+// - tool loop 可能要跑多轮，先在内存里收集整轮痕迹更容易保证顺序正确
+// - 如果中途 provider 调用失败，就不会留下半截、难解释的 session
+// - 这和“完成一个 turn 后再整体保存”的思路更一致
 type traceMessage struct {
 	role    string
 	content string
 	attrs   map[string]any
 }
 
-// ProcessMessage handles one inbound message end-to-end.
+// ProcessMessage 处理一条标准化后的输入消息，并返回最终回复。
 //
-// Inputs: a populated InboundMessage that already identifies the transport channel and chat thread.
-// Outputs: the assistant's outbound reply plus metadata that includes the resolved session key.
-// State changes: appends the full turn trace to the session and persists it.
-// Side effects: may call the model, execute tools, and write to session storage.
-// Compatibility: the control flow matches nanobot's `process_direct` / agent loop sequence: session -> prompt -> LLM -> tools -> save session.
+// 参数：
+// - ctx: 请求级上下文
+// - msg: 已经携带 channel/chat/thread 信息的输入消息
+//
+// 返回：
+// - model.OutboundMessage: 可继续交给 transport 层投递的回复
+// - error: 整轮处理失败时返回错误
+//
+// 为什么这层要同时处理 direct chat 和 bus 驱动消息：
+// - 它们的核心行为完全相同，区别只在“消息从哪里来、结果发到哪里去”
+// - 如果分别维护两套 turn 逻辑，后续几乎一定会发生行为漂移
 func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) (model.OutboundMessage, error) {
 	if strings.TrimSpace(msg.Content) == "" {
 		return model.OutboundMessage{}, errors.New("chat service: message content is empty")
@@ -103,6 +136,10 @@ func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) 
 		return model.OutboundMessage{}, errors.New("chat service: failed to get or create session")
 	}
 
+	// 当前实现还没有“按本轮上下文显式激活 skill”的完整上游流程，
+	// 所以这里先传 nil，保留接口位点但不提前发明行为。
+	//
+	// TODO: 当 runtime 能真正把 selected skills 传下来时，在这里接入 skillNames。
 	llmMessages := s.prompts.BuildMessages(session.GetHistory(500), msg.Content, nil)
 	trace := []traceMessage{{
 		role:    model.RoleUser,
@@ -119,6 +156,10 @@ func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) 
 		if resp.HasToolCalls() {
 			toolCallMaps := make([]map[string]any, 0, len(resp.ToolCalls))
 			for _, tc := range resp.ToolCalls {
+				// 这里把内部 ToolCall 重新编码成 provider 常见的 tool-call message 形状，
+				// 目的是让下一轮模型调用能够“看见自己刚才请求了什么工具”。
+				//
+				// 如果缺少这一步，模型下一轮只会收到 tool result，却不知道这个结果是怎么来的。
 				argJSON, _ := json.Marshal(tc.Args)
 				toolCallMaps = append(toolCallMaps, map[string]any{
 					"id":   tc.ID,
@@ -130,6 +171,8 @@ func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) 
 				})
 			}
 
+			// 先把 assistant 的 tool-call 痕迹写回消息列表，再执行真实工具。
+			// 这样 transcript 的顺序和真实推理过程保持一致，也更容易调试。
 			llmMessages = s.prompts.AddAssistantMessage(llmMessages, resp.Content, toolCallMaps)
 			trace = append(trace, traceMessage{
 				role:    model.RoleAssistant,
@@ -142,9 +185,14 @@ func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) 
 			for _, tc := range resp.ToolCalls {
 				result, err := s.tools.Execute(ctx, tc.Name, tc.Args)
 				if err != nil {
+					// 这里故意不因为单个工具失败而直接终止整轮 turn。
+					// 原因是模型经常可以根据错误文本决定是否重试、换参数，
+					// 或者直接解释失败；这比让整轮对话直接崩掉更有恢复力。
 					result = fmt.Sprintf("Error: %s", err.Error())
 				}
 
+				// 把工具结果继续追加回 transcript，供下一轮模型消费。
+				// assistant 的 tool-call trace 与 tool result trace 必须成对出现，tool loop 才完整。
 				llmMessages = s.prompts.AddToolResult(llmMessages, tc.ID, tc.Name, result)
 				trace = append(trace, traceMessage{
 					role:    model.RoleTool,
@@ -159,10 +207,14 @@ func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) 
 			continue
 		}
 
+		// 一旦模型不再请求工具，就把当前内容视为本轮最终回答。
+		// TrimSpace 是为了避免 provider 返回纯空白时被误判成有效输出。
 		answer = strings.TrimSpace(resp.Content)
 		break
 	}
 
+	// 如果多轮之后依然没有产出最终回答，先给一个稳定兜底文案，
+	// 避免 direct chat 最后返回空字符串。
 	if answer == "" {
 		answer = "Sorry, I encountered an error calling the AI model."
 	}
@@ -190,13 +242,21 @@ func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) 
 	}, nil
 }
 
-// ProcessDirect handles the direct CLI-style chat path without a transport loop.
+// ProcessDirect 处理 direct CLI 风格的单轮输入。
 //
-// Inputs: a context, an explicit session key, and raw user text.
-// Outputs: the assistant reply as plain text.
-// State changes: persists the turn into the session identified by the explicit session key.
-// Side effects: same as ProcessMessage, because this is a thin wrapper around the main orchestration path.
-// Compatibility: unlike Python nanobot, the explicit session key is preserved intentionally in the Go rewrite so direct CLI calls can control thread boundaries.
+// 参数：
+// - ctx: 请求级上下文
+// - sessionKey: 显式 session key；为空时回退到默认 direct 会话
+// - content: 用户输入文本
+//
+// 返回：
+// - string: assistant 最终回复
+// - error: 处理失败时返回错误
+//
+// 为什么保留显式 sessionKey：
+// - 这是当前 Go 版本一个值得保留的改进点
+// - direct chat、cron、heartbeat 都能共用同一条业务路径，但不必强制落到同一个会话里
+// - 这比把所有 direct path 都挤到同一个 session 更容易调试和测试
 func (s *Service) ProcessDirect(ctx context.Context, sessionKey string, content string) (string, error) {
 	if strings.TrimSpace(content) == "" {
 		return "", errors.New("chat service: message content is empty")
@@ -229,6 +289,12 @@ func (s *Service) ProcessDirect(ctx context.Context, sessionKey string, content 
 	return content, nil
 }
 
+// toLLMMessages 把持久化层的 Message 结构转换成 provider 可消费的消息形状。
+//
+// 为什么需要这一层转换：
+// - session 中保存的是领域模型，字段命名和结构更偏向业务可读性
+// - provider 需要的是另一种更扁平的消息形状
+// - 把转换逻辑集中在这里，可以避免 provider-specific 细节散落在 service 和 builder 中
 func toLLMMessages(history []*model.Message) []map[string]any {
 	out := make([]map[string]any, 0, len(history))
 	for _, msg := range history {
