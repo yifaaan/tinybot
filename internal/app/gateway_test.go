@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	tooladapter "tinybot/internal/adapters/tool"
 	"tinybot/internal/domain/model"
 	chatservice "tinybot/internal/service/chat"
 	transportbus "tinybot/internal/transport/bus"
@@ -83,6 +84,20 @@ func (g gatewayLLM) Chat(ctx context.Context, messages []map[string]any, tools [
 	return g.resp, nil
 }
 
+type scriptedGatewayLLM struct {
+	responses []model.LLMResponse
+	callCount int
+}
+
+func (g *scriptedGatewayLLM) Chat(ctx context.Context, messages []map[string]any, tools []map[string]any, maxTokens int, temperature float32) (model.LLMResponse, error) {
+	if g.callCount >= len(g.responses) {
+		return model.LLMResponse{}, nil
+	}
+	resp := g.responses[g.callCount]
+	g.callCount++
+	return resp, nil
+}
+
 type gatewayTools struct{}
 
 func (gatewayTools) GetDefinitions() []map[string]any {
@@ -105,6 +120,39 @@ type failingGatewayProcessor struct {
 
 func (f failingGatewayProcessor) ProcessMessage(ctx context.Context, msg model.InboundMessage) (model.OutboundMessage, error) {
 	return model.OutboundMessage{}, f.err
+}
+
+func TestWireMessageToolToBus_PublishesOutbound(t *testing.T) {
+	reg := tooladapter.NewRegistry()
+	reg.Register(tooladapter.NewMessageTool(nil, model.ChannelCLI, ""))
+	reg.SetMessageContext(model.ChannelCLI, "gateway-chat")
+
+	bus := transportbus.NewMemoryBus(1)
+	defer bus.Close()
+
+	wireMessageToolToBus(reg, bus)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	_, err := reg.Execute(ctx, "message", map[string]any{"content": "hello from tool"})
+	if err != nil {
+		t.Fatalf("Execute() error: %v", err)
+	}
+
+	got, err := bus.ConsumeOutbound(ctx)
+	if err != nil {
+		t.Fatalf("ConsumeOutbound() error: %v", err)
+	}
+	if got.Channel != model.ChannelCLI {
+		t.Fatalf("got.Channel = %q, want %q", got.Channel, model.ChannelCLI)
+	}
+	if got.ChatID != "gateway-chat" {
+		t.Fatalf("got.ChatID = %q, want %q", got.ChatID, "gateway-chat")
+	}
+	if got.Content != "hello from tool" {
+		t.Fatalf("got.Content = %q, want %q", got.Content, "hello from tool")
+	}
 }
 
 func TestGatewayApp_Run_ConsoleRoundTrip(t *testing.T) {
@@ -198,6 +246,120 @@ func TestGatewayApp_Run_ConsoleRoundTrip(t *testing.T) {
 	}
 	if session.Messages[1].Content != "gateway reply" {
 		t.Fatalf("assistant message = %q, want %q", session.Messages[1].Content, "gateway reply")
+	}
+}
+
+func TestGatewayApp_Run_MessageToolRoundTrip(t *testing.T) {
+	workspace := t.TempDir()
+	repo := &gatewaySessionRepo{}
+	llm := &scriptedGatewayLLM{responses: []model.LLMResponse{
+		{
+			Content: "sending a tool message",
+			ToolCalls: []*model.ToolCall{{
+				ID:   "call-1",
+				Name: "message",
+				Args: map[string]any{"content": "tool hello"},
+			}},
+		},
+		{Content: "final gateway reply"},
+	}}
+
+	reg := tooladapter.NewRegistry()
+	reg.Register(tooladapter.NewMessageTool(nil, model.ChannelCLI, ""))
+
+	chatSvc, err := chatservice.NewService(
+		repo,
+		llm,
+		reg,
+		newPromptBuilder(workspace),
+		20,
+		8192,
+		0.7,
+	)
+	if err != nil {
+		t.Fatalf("NewService() error: %v", err)
+	}
+
+	b := transportbus.NewMemoryBus(16)
+	wireMessageToolToBus(reg, b)
+	loop := transportgateway.NewLoop(chatSvc, b)
+	manager := transportchannel.NewChannelManager(b)
+	output := &lockedBuffer{}
+	manager.RegisterChannel(transportchannel.NewConsoleChannel(
+		b,
+		transportchannel.ConsoleChannelConfig{
+			ChatID:     "gateway-chat",
+			SenderID:   "gateway-user",
+			Prompt:     "You>",
+			ShowPrefix: true,
+		},
+		strings.NewReader("hello message tool\n"),
+		output,
+	))
+
+	heartbeatRunner, err := transportruntime.NewHeartbeatRunner(fakeRuntimeTrigger{}, 60, false)
+	if err != nil {
+		t.Fatalf("NewHeartbeatRunner() error: %v", err)
+	}
+	cronRunner, err := transportruntime.NewCronRunner(fakeRuntimeTrigger{}, 60)
+	if err != nil {
+		t.Fatalf("NewCronRunner() error: %v", err)
+	}
+
+	gw := &GatewayApp{
+		Bus:       b,
+		Loop:      loop,
+		Manager:   manager,
+		Heartbeat: heartbeatRunner,
+		Cron:      cronRunner,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	defer gw.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- gw.Run(ctx)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		text := output.String()
+		if strings.Contains(text, "tinybot> tool hello") && strings.Contains(text, "tinybot> final gateway reply") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	text := output.String()
+	if !strings.Contains(text, "tinybot> tool hello") {
+		t.Fatalf("gateway output missing message-tool reply: %q", text)
+	}
+	if !strings.Contains(text, "tinybot> final gateway reply") {
+		t.Fatalf("gateway output missing final assistant reply: %q", text)
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("GatewayApp.Run() error: %v", err)
+	}
+
+	session := repo.Session("cli:gateway-chat")
+	if session == nil {
+		t.Fatal("expected gateway chat session to be saved")
+	}
+	if len(session.Messages) != 4 {
+		t.Fatalf("session message len = %d, want 4", len(session.Messages))
+	}
+	if session.Messages[0].Content != "hello message tool" {
+		t.Fatalf("user message = %q, want %q", session.Messages[0].Content, "hello message tool")
+	}
+	if session.Messages[2].Content != "Message sent to cli:gateway-chat" {
+		t.Fatalf("tool result = %q, want %q", session.Messages[2].Content, "Message sent to cli:gateway-chat")
+	}
+	if session.Messages[3].Content != "final gateway reply" {
+		t.Fatalf("assistant message = %q, want %q", session.Messages[3].Content, "final gateway reply")
 	}
 }
 

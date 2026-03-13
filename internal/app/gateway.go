@@ -49,8 +49,7 @@ func NewGatewayApp(workspace string, input io.Reader, output io.Writer) (*Gatewa
 	}
 
 	bs := transportbus.NewMemoryBus(16)
-	// 把 message tool 接到 bus，再启动 loop/manager。
-	// 这样 gateway 模式下的 message tool 才真的能发出消息
+	app.Tools.Register(tool.NewMessageTool(nil, model.ChannelCLI, ""))
 	wireMessageToolToBus(app.Tools, bs)
 
 	lp := transportgateway.NewLoop(app.ChatService, bs)

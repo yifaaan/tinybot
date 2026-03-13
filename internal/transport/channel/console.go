@@ -28,12 +28,6 @@ type ConsoleChannelConfig struct {
 // Responsibilities:
 //   - translate console input lines into inbound messages
 //   - render outbound messages back to the console
-//
-// Inputs: stdin-like input, stdout-like output, and a transport bus.
-// Outputs: inbound messages published to the bus and rendered outbound replies.
-// State changes: prompt/output sequencing on the console.
-// Side effects: reads and writes OS streams when nil input/output are provided.
-// Compatibility: preserves the current Go console gateway behavior while making it explicit transport code.
 type ConsoleChannel struct {
 	bus    transport.MessageBus
 	cfg    ConsoleChannelConfig
@@ -74,6 +68,7 @@ func (c *ConsoleChannel) Name() model.Channel {
 }
 
 // Start reads console input until EOF, context cancellation, or a bus error.
+// 把终端输入变成 inbound，然后写进 bus
 func (c *ConsoleChannel) Start(ctx context.Context) error {
 	lines := make(chan string)
 	errCh := make(chan error, 1)
@@ -137,6 +132,7 @@ func (c *ConsoleChannel) Start(ctx context.Context) error {
 }
 
 // Send writes one outbound reply to the console.
+// 把从 bus 派发下来的 outbound 真正写回终端
 func (c *ConsoleChannel) Send(ctx context.Context, out model.OutboundMessage) error {
 	select {
 	case <-ctx.Done():

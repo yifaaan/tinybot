@@ -7,7 +7,6 @@ import (
 	"tinybot/internal/adapters/provider"
 	"tinybot/internal/adapters/tool"
 	workspaceadapter "tinybot/internal/adapters/workspace"
-	"tinybot/internal/domain/model"
 	"tinybot/internal/repository/sessionrepo"
 	chatservice "tinybot/internal/service/chat"
 
@@ -41,38 +40,7 @@ func NewApp(workspace string) (*App, error) {
 	}
 
 	// 初始化工具注册表，并注册工具
-	toolRegistry := tool.NewRegistry()
-	// exec tool
-	execTool := tool.NewExecTool(cfg.Tools.Exec.TimeoutSeconds, workspace)
-	toolRegistry.Register(execTool)
-
-	// read file tool
-	readFileTool := tool.NewReadFileTool(workspace)
-	toolRegistry.Register(readFileTool)
-
-	// write file tool
-	writeFileTool := tool.NewWriteFileTool(workspace)
-	toolRegistry.Register(writeFileTool)
-
-	// list dir tool
-	listDirTool := tool.NewListDirTool(workspace)
-	toolRegistry.Register(listDirTool)
-
-	// edit file tool
-	editFileTool := tool.NewEditFileTool(workspace)
-	toolRegistry.Register(editFileTool)
-
-	// web search tool
-	webSearchTool := tool.NewWebSearchTool("", cfg.Tools.WebSearch.MaxResult) // API key should be set via environment variable
-	toolRegistry.Register(webSearchTool)
-
-	// web fetch tool
-	webFetchTool := tool.NewWebFetchTool(cfg.Tools.WebFetch.MaxChars)
-	toolRegistry.Register(webFetchTool)
-
-	// message tool
-	messageTool := tool.NewMessageTool(nil, model.ChannelCLI, "")
-	toolRegistry.Register(messageTool)
+	toolRegistry := buildCoreToolRegistry(workspace, cfg)
 
 	chatService, err := chatservice.NewService(
 		sessionRepo,
@@ -117,4 +85,16 @@ func newLLMClientFromConfig(cfg *Config) (chatservice.CompletionClient, error) {
 		return nil, fmt.Errorf("missing qwen api key: set it in workspace config or env")
 	}
 	return provider.NewQwenProvider(apiKey, apiBase, model)
+}
+
+func buildCoreToolRegistry(workspace string, cfg *Config) *tool.Registry {
+	reg := tool.NewRegistry()
+	reg.Register(tool.NewExecTool(cfg.Tools.Exec.TimeoutSeconds, workspace))
+	reg.Register(tool.NewReadFileTool(workspace))
+	reg.Register(tool.NewWriteFileTool(workspace))
+	reg.Register(tool.NewListDirTool(workspace))
+	reg.Register(tool.NewEditFileTool(workspace))
+	reg.Register(tool.NewWebSearchTool("", cfg.Tools.WebSearch.MaxResult))
+	reg.Register(tool.NewWebFetchTool(cfg.Tools.WebFetch.MaxChars))
+	return reg
 }

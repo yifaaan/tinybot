@@ -255,11 +255,6 @@ func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) 
 // 返回：
 // - string: assistant 最终回复
 // - error: 处理失败时返回错误
-//
-// 为什么保留显式 sessionKey：
-// - 这是当前 Go 版本一个值得保留的改进点
-// - direct chat、cron、heartbeat 都能共用同一条业务路径，但不必强制落到同一个会话里
-// - 这比把所有 direct path 都挤到同一个 session 更容易调试和测试
 func (s *Service) ProcessDirect(ctx context.Context, sessionKey string, content string) (string, error) {
 	if strings.TrimSpace(content) == "" {
 		return "", errors.New("chat service: message content is empty")
