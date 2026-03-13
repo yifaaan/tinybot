@@ -5,3 +5,5 @@ specs.md
 sessions/
 NANOBOT_DESIGN_SPEC.md
 test.md
+.tinybot/
+config.json
