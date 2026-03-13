@@ -18,6 +18,7 @@ type App struct {
 	ChatService *chatservice.Service
 	SessionRepo chatservice.SessionRepository
 	Config      *Config
+	Tools       *tool.Registry
 }
 
 func NewApp(workspace string) (*App, error) {
@@ -90,6 +91,7 @@ func NewApp(workspace string) (*App, error) {
 		ChatService: chatService,
 		SessionRepo: sessionRepo,
 		Config:      cfg,
+		Tools:       toolRegistry,
 	}, nil
 }
 

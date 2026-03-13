@@ -110,6 +110,9 @@ type fakeToolRegistry struct {
 	results     map[string]string
 	err         error
 	executions  []fakeToolExecution
+
+	messageChannel model.Channel
+	messageChatID  string
 }
 
 func newFakeToolRegistry() *fakeToolRegistry {
@@ -118,6 +121,44 @@ func newFakeToolRegistry() *fakeToolRegistry {
 
 func (f *fakeToolRegistry) GetDefinitions() []map[string]any {
 	return append([]map[string]any(nil), f.definitions...)
+}
+
+// SetMessageContext 让 fakeToolRegistry 满足 service.go 里那个可选窄接口。
+// 这样我们就能在不引入真实 Registry 的前提下测试 service 的 wiring。
+func (f *fakeToolRegistry) SetMessageContext(channel model.Channel, chatID string) {
+	f.messageChannel = channel
+	f.messageChatID = chatID
+}
+func TestService_ProcessMessage_SetsMessageToolContext(t *testing.T) {
+	repo := newFakeSessionRepository()
+	tools := newFakeToolRegistry()
+	service, err := NewService(
+		repo,
+		fakeLLMClient{resp: model.LLMResponse{Content: "ok"}},
+		tools,
+		newTestPromptBuilder(t.TempDir()),
+		20,
+		8192,
+		0.7,
+	)
+	if err != nil {
+		t.Fatalf("NewService() error: %v", err)
+	}
+	_, err = service.ProcessMessage(context.Background(), model.InboundMessage{
+		ID:      "m-context",
+		Channel: model.ChannelTelegram,
+		ChatID:  "chat-ctx",
+		Content: "hello",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage() error: %v", err)
+	}
+	if tools.messageChannel != model.ChannelTelegram {
+		t.Fatalf("messageChannel = %q, want %q", tools.messageChannel, model.ChannelTelegram)
+	}
+	if tools.messageChatID != "chat-ctx" {
+		t.Fatalf("messageChatID = %q, want %q", tools.messageChatID, "chat-ctx")
+	}
 }
 
 func (f *fakeToolRegistry) Execute(ctx context.Context, name string, params map[string]any) (string, error) {

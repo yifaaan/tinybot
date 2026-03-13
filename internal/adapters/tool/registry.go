@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"fmt"
+	"tinybot/internal/domain/model"
 )
 
 type Registry struct {
@@ -64,4 +65,33 @@ func (r *Registry) ToolNames() []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+// SetMessageContext 把当前会话上下文传给 message tool
+func (r *Registry) SetMessageContext(channel model.Channel, chatID string) {
+	tool, ok := r.messageTool()
+	if !ok {
+		return
+	}
+	tool.SetContext(channel, chatID)
+}
+
+func (r *Registry) SetMessageCallback(callback SendMessageCallback) {
+	tool, ok := r.messageTool()
+	if !ok {
+		return
+	}
+	tool.SetSendMessageCallback(callback)
+}
+
+func (r *Registry) messageTool() (*MessageTool, bool) {
+	raw, ok := r.Get("message")
+	if !ok {
+		return nil, false
+	}
+	mt, ok := raw.(*MessageTool)
+	if !ok {
+		return nil, false
+	}
+	return mt, true
 }

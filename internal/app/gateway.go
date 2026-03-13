@@ -6,14 +6,33 @@ import (
 	"fmt"
 	"io"
 
+	"tinybot/internal/adapters/tool"
+	"tinybot/internal/domain/model"
 	"tinybot/internal/repository/cronrepo"
 	cronservice "tinybot/internal/service/cron"
 	heartbeatservice "tinybot/internal/service/heartbeat"
+	"tinybot/internal/transport"
 	transportbus "tinybot/internal/transport/bus"
 	transportchannel "tinybot/internal/transport/channel"
 	transportgateway "tinybot/internal/transport/gateway"
 	transportruntime "tinybot/internal/transport/runtime"
 )
+
+type messageToolRegistry interface {
+	SetMessageCallback(callback tool.SendMessageCallback)
+}
+
+// wireMessageToolToBus 把 message tool 的发送动作接到 outbound bus 上。
+func wireMessageToolToBus(registry messageToolRegistry, bus transport.MessageBus) {
+	if registry == nil || bus == nil {
+		return
+	}
+	registry.SetMessageCallback(func(ctx context.Context, msg model.OutboundMessage) error {
+		// app 层只负责把 message tool 的“外发意图”重新放回统一的 outbound bus，
+		// 真正的发送仍然交给 transport/channel manager。
+		return bus.PublishOutbound(ctx, msg)
+	})
+}
 
 type GatewayApp struct {
 	Bus       *transportbus.MemoryBus
@@ -30,6 +49,10 @@ func NewGatewayApp(workspace string, input io.Reader, output io.Writer) (*Gatewa
 	}
 
 	bs := transportbus.NewMemoryBus(16)
+	// 把 message tool 接到 bus，再启动 loop/manager。
+	// 这样 gateway 模式下的 message tool 才真的能发出消息
+	wireMessageToolToBus(app.Tools, bs)
+
 	lp := transportgateway.NewLoop(app.ChatService, bs)
 	manager := transportchannel.NewChannelManager(bs)
 	heartbeatSvc := heartbeatservice.NewService(workspace, app.ChatService)

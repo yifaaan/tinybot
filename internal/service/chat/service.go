@@ -27,6 +27,13 @@ const (
 	defaultMaxTokens     = 8192
 )
 
+// messageContextSetter 是一个局部窄接口。
+// chat service 不需要知道具体的 Registry 类型，
+// 只需要知道“如果工具集合支持更新 message 上下文，那就在每轮开始时调用一下”
+type messageContextSetter interface {
+	SetMessageContext(channel model.Channel, chatID string)
+}
+
 // Service 负责完成一次完整的 agent 对话回合。
 //
 // 它的职责是稳定地执行下面这条主链路：
@@ -35,11 +42,6 @@ const (
 // 3. 调用模型
 // 4. 处理工具循环
 // 5. 保存本轮 trace
-//
-// 为什么要把这一层单独抽成 service：
-// - transport 层只负责“谁触发了一次 turn”，不应该重复实现 turn 的内部细节
-// - direct chat 和 bus 驱动消息应该共用同一套行为，否则后续很容易发生漂移
-// - 这也是最值得优先被测试保护的核心路径
 type Service struct {
 	sessions      SessionRepository
 	llm           CompletionClient
@@ -64,9 +66,6 @@ type Service struct {
 // 返回：
 // - *Service: 初始化好的 service
 // - error: 依赖缺失时返回错误
-//
-// 这里优先在构造期校验依赖，是为了把“装配错误”和“运行时错误”区分开。
-// 对 CLI 程序来说，启动时就失败，通常比跑到中途才 nil pointer 更容易排查。
 func NewService(sessions SessionRepository, llm CompletionClient, tools ToolExecutor, prompts PromptBuilder, maxIterations int, maxTokens int, temperature float32) (*Service, error) {
 	if sessions == nil {
 		return nil, errors.New("chat service: session repository is required")
@@ -136,6 +135,10 @@ func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) 
 		return model.OutboundMessage{}, errors.New("chat service: failed to get or create session")
 	}
 
+	// 每轮进入tool loop前，帮inbound的channel/chatid 传给message tool
+	if setter, ok := s.tools.(messageContextSetter); ok {
+		setter.SetMessageContext(msg.Channel, msg.ChatID)
+	}
 	// 当前实现还没有“按本轮上下文显式激活 skill”的完整上游流程，
 	// 所以这里先传 nil，保留接口位点但不提前发明行为。
 	//
