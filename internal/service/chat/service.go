@@ -50,6 +50,7 @@ type Service struct {
 	maxIterations int
 	maxTokens     int
 	temperature   float32
+	consolidator  *Consolidator
 }
 
 // NewService 构造一个可执行单轮对话的 chat service。
@@ -66,7 +67,7 @@ type Service struct {
 // 返回：
 // - *Service: 初始化好的 service
 // - error: 依赖缺失时返回错误
-func NewService(sessions SessionRepository, llm CompletionClient, tools ToolExecutor, prompts PromptBuilder, maxIterations int, maxTokens int, temperature float32) (*Service, error) {
+func NewService(sessions SessionRepository, llm CompletionClient, tools ToolExecutor, prompts PromptBuilder, maxIterations int, maxTokens int, temperature float32, consolidator *Consolidator) (*Service, error) {
 	if sessions == nil {
 		return nil, errors.New("chat service: session repository is required")
 	}
@@ -94,6 +95,7 @@ func NewService(sessions SessionRepository, llm CompletionClient, tools ToolExec
 		maxIterations: maxIterations,
 		maxTokens:     maxTokens,
 		temperature:   temperature,
+		consolidator:  consolidator,
 	}, nil
 }
 
@@ -135,6 +137,12 @@ func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) 
 		return model.OutboundMessage{}, errors.New("chat service: failed to get or create session")
 	}
 
+	// 压缩旧消息
+	if s.consolidator != nil && s.consolidator.NeedsConsolidation(session) {
+		if err := s.consolidator.Consolidate(ctx, session); err != nil {
+			// TODO:log
+		}
+	}
 	// 每轮进入tool loop前，帮inbound的channel/chatid 传给message tool
 	if setter, ok := s.tools.(messageContextSetter); ok {
 		setter.SetMessageContext(msg.Channel, msg.ChatID)

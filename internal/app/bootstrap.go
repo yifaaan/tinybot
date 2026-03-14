@@ -42,6 +42,7 @@ func NewApp(workspace string) (*App, error) {
 	// 初始化工具注册表，并注册工具
 	toolRegistry := buildCoreToolRegistry(workspace, cfg)
 
+	consolidator := chatservice.NewConsolidator(llm, 8192, 10)
 	chatService, err := chatservice.NewService(
 		sessionRepo,
 		llm,
@@ -50,6 +51,7 @@ func NewApp(workspace string) (*App, error) {
 		cfg.Agents.MaxToolIterations,
 		cfg.Agents.MaxTokens,
 		float32(cfg.Agents.Temperature),
+		consolidator,
 	)
 	if err != nil {
 		return nil, err

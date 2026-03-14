@@ -77,7 +77,7 @@ func (s *Session) GetHistory(n int) []*Message {
 	}
 
 	start := s.LastConsolidated
-	if start < 0 || start > len(s.Messages) {
+	if start < 0 || start >= len(s.Messages) {
 		start = 0
 	}
 	unconsolidated := s.Messages[start:]
@@ -87,6 +87,7 @@ func (s *Session) GetHistory(n int) []*Message {
 
 	sliced := unconsolidated
 	// Drop leading non-user messages to avoid orphaned tool_result blocks
+	//  Tool call 链 必须是完整的：user -> assistant (带 tool_calls) → tool (返回 tool_result) → assistant (处理结果)
 	for i, m := range sliced {
 		if m.Role == RoleUser {
 			sliced = sliced[i:]

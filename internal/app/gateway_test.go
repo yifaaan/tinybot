@@ -158,14 +158,17 @@ func TestWireMessageToolToBus_PublishesOutbound(t *testing.T) {
 func TestGatewayApp_Run_ConsoleRoundTrip(t *testing.T) {
 	workspace := t.TempDir()
 	repo := &gatewaySessionRepo{}
+	llm := gatewayLLM{resp: model.LLMResponse{Content: "gateway reply"}}
+	consolidator := chatservice.NewConsolidator(llm, 8192, 10)
 	chatSvc, err := chatservice.NewService(
 		repo,
-		gatewayLLM{resp: model.LLMResponse{Content: "gateway reply"}},
+		llm,
 		gatewayTools{},
 		newPromptBuilder(workspace),
 		20,
 		8192,
 		0.7,
+		consolidator,
 	)
 	if err != nil {
 		t.Fatalf("NewService() error: %v", err)
@@ -267,6 +270,7 @@ func TestGatewayApp_Run_MessageToolRoundTrip(t *testing.T) {
 	reg := tooladapter.NewRegistry()
 	reg.Register(tooladapter.NewMessageTool(nil, model.ChannelCLI, ""))
 
+	consolidator := chatservice.NewConsolidator(llm, 8192, 10)
 	chatSvc, err := chatservice.NewService(
 		repo,
 		llm,
@@ -275,6 +279,7 @@ func TestGatewayApp_Run_MessageToolRoundTrip(t *testing.T) {
 		20,
 		8192,
 		0.7,
+		consolidator,
 	)
 	if err != nil {
 		t.Fatalf("NewService() error: %v", err)

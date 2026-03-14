@@ -165,14 +165,17 @@ func (f *fakeToolRegistry) SetMessageContext(channel model.Channel, chatID strin
 func TestService_ProcessMessage_SetsMessageToolContext(t *testing.T) {
 	repo := newFakeSessionRepository()
 	tools := newFakeToolRegistry()
+	llm := fakeLLMClient{resp: model.LLMResponse{Content: "ok"}}
+	consolidator := NewConsolidator(llm, 8192, 10)
 	service, err := NewService(
 		repo,
-		fakeLLMClient{resp: model.LLMResponse{Content: "ok"}},
+		llm,
 		tools,
 		newTestPromptBuilder(t.TempDir()),
 		20,
 		8192,
 		0.7,
+		consolidator,
 	)
 	if err != nil {
 		t.Fatalf("NewService() error: %v", err)
@@ -295,7 +298,7 @@ func TestNewService(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewService(tt.repo, tt.llm, tt.tools, tt.prompts, 20, 8192, 0.7)
+			_, err := NewService(tt.repo, tt.llm, tt.tools, tt.prompts, 20, 8192, 0.7, nil)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("NewService() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -401,7 +404,7 @@ func TestService_ProcessMessage(t *testing.T) {
 			repo := newFakeSessionRepository()
 			repo.getErr = tt.getErr
 			repo.saveErr = tt.saveErr
-			service, err := NewService(repo, fakeLLMClient{resp: tt.llmResp, err: tt.llmErr}, newFakeToolRegistry(), newTestPromptBuilder(t.TempDir()), 20, 8192, 0.7)
+			service, err := NewService(repo, fakeLLMClient{resp: tt.llmResp, err: tt.llmErr}, newFakeToolRegistry(), newTestPromptBuilder(t.TempDir()), 20, 8192, 0.7, nil)
 			if err != nil {
 				t.Fatalf("NewService error: %v", err)
 			}
@@ -454,7 +457,7 @@ func TestService_ProcessMessage(t *testing.T) {
 
 func TestService_ProcessDirect_UsesExplicitSessionKey(t *testing.T) {
 	repo := newFakeSessionRepository()
-	service, err := NewService(repo, fakeLLMClient{resp: model.LLMResponse{Content: "done"}}, newFakeToolRegistry(), newTestPromptBuilder(t.TempDir()), 20, 8192, 0.7)
+	service, err := NewService(repo, fakeLLMClient{resp: model.LLMResponse{Content: "done"}}, newFakeToolRegistry(), newTestPromptBuilder(t.TempDir()), 20, 8192, 0.7, nil)
 	if err != nil {
 		t.Fatalf("NewService error: %v", err)
 	}
@@ -491,7 +494,7 @@ func TestService_ProcessMessage_UsesPromptBuilder(t *testing.T) {
 		resp:             model.LLMResponse{Content: "ok"},
 		capturedMessages: &captured,
 	}
-	service, err := NewService(repo, llm, newFakeToolRegistry(), newTestPromptBuilder(tmp), 20, 8192, 0.7)
+	service, err := NewService(repo, llm, newFakeToolRegistry(), newTestPromptBuilder(tmp), 20, 8192, 0.7, nil)
 	if err != nil {
 		t.Fatalf("NewService error: %v", err)
 	}
@@ -532,6 +535,7 @@ func TestService_ProcessMessage_ForwardsSelectedSkillsToPromptBuilder(t *testing
 		20,
 		8192,
 		0.7,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("NewService error: %v", err)
@@ -560,7 +564,7 @@ func TestService_ProcessMessage_DoesNotDuplicateCurrentUserMessage(t *testing.T)
 		resp:             model.LLMResponse{Content: "ok"},
 		capturedMessages: &captured,
 	}
-	service, err := NewService(repo, llm, newFakeToolRegistry(), newTestPromptBuilder(t.TempDir()), 20, 8192, 0.7)
+	service, err := NewService(repo, llm, newFakeToolRegistry(), newTestPromptBuilder(t.TempDir()), 20, 8192, 0.7, nil)
 	if err != nil {
 		t.Fatalf("NewService error: %v", err)
 	}
@@ -592,7 +596,7 @@ func TestService_ProcessMessage_DoesNotDuplicateCurrentUserMessage(t *testing.T)
 func TestService_ProcessMessage_UsesConfiguredTokenAndTemperature(t *testing.T) {
 	llm, state := newFakeLLMSequence(model.LLMResponse{Content: "ok"})
 	repo := newFakeSessionRepository()
-	service, err := NewService(repo, llm, newFakeToolRegistry(), newTestPromptBuilder(t.TempDir()), 7, 321, 0.25)
+	service, err := NewService(repo, llm, newFakeToolRegistry(), newTestPromptBuilder(t.TempDir()), 7, 321, 0.25, nil)
 	if err != nil {
 		t.Fatalf("NewService error: %v", err)
 	}
@@ -650,7 +654,7 @@ func TestService_ProcessMessage_ToolLoopRegression(t *testing.T) {
 		},
 	}
 
-	service, err := NewService(repo, llm, tools, newTestPromptBuilder(t.TempDir()), 20, 8192, 0.7)
+	service, err := NewService(repo, llm, tools, newTestPromptBuilder(t.TempDir()), 20, 8192, 0.7, nil)
 	if err != nil {
 		t.Fatalf("NewService error: %v", err)
 	}
@@ -719,7 +723,7 @@ func TestService_ProcessMessage_ToolFailureIsRecorded(t *testing.T) {
 	tools := newFakeToolRegistry()
 	tools.err = errors.New("boom")
 
-	service, err := NewService(repo, llm, tools, newTestPromptBuilder(t.TempDir()), 20, 8192, 0.7)
+	service, err := NewService(repo, llm, tools, newTestPromptBuilder(t.TempDir()), 20, 8192, 0.7, nil)
 	if err != nil {
 		t.Fatalf("NewService error: %v", err)
 	}
