@@ -5,7 +5,7 @@ specs.md
 sessions/
 NANOBOT_DESIGN_SPEC.md
 test.md
-.tinybot/
-.tinybot/config.json
+.tinybot
 .cache
 .planning
+.claude
