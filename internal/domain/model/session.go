@@ -87,9 +87,10 @@ func (s *Session) GetHistory(n int) []*Message {
 
 	sliced := unconsolidated
 	// Drop leading non-user messages to avoid orphaned tool_result blocks
-	//  Tool call 链 必须是完整的：user -> assistant (带 tool_calls) → tool (返回 tool_result) → assistant (处理结果)
+	// Tool call 链必须是完整的：user -> assistant (带 tool_calls) → tool (返回 tool_result) → assistant (处理结果)
+	// 但保留 RoleSystem 消息（如 consolidation 摘要），它们是有效的上下文
 	for i, m := range sliced {
-		if m.Role == RoleUser {
+		if m.Role == RoleUser || m.Role == RoleSystem {
 			sliced = sliced[i:]
 			break
 		}

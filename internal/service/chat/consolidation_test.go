@@ -210,6 +210,17 @@ func TestConsolidate_Basic(t *testing.T) {
 	if !strings.Contains(nextMsg.Content, "message number 8") {
 		t.Errorf("message after summary should be msg 8, got: %s", nextMsg.Content)
 	}
+	// 验证 GetHistory 能拿到摘要消息（RoleSystem 不会被跳过）
+	history := session.GetHistory(500)
+	if len(history) == 0 {
+		t.Fatal("GetHistory returned empty")
+	}
+	if history[0].Role != model.RoleSystem {
+		t.Errorf("GetHistory first msg should be summary (system), got role=%s", history[0].Role)
+	}
+	if !strings.Contains(history[0].Content, "[对话历史摘要]") {
+		t.Errorf("GetHistory first msg should contain summary header, got: %s", history[0].Content)
+	}
 }
 
 func TestConsolidate_NothingToCompress(t *testing.T) {
