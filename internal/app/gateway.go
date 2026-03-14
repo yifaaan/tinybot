@@ -79,6 +79,13 @@ func NewGatewayApp(workspace string, input io.Reader, output io.Writer) (*Gatewa
 		consoleCh := transportchannel.NewConsoleChannel(bs, consoleCfg, input, output)
 		manager.RegisterChannel(consoleCh)
 	}
+	if app.Config.Channels.Telegram.Enabled && app.Config.Channels.Telegram.Token != "" {
+		telegramCh, err := transportchannel.NewTelegramChannel(bs, app.Config.Channels.Telegram.Token)
+		if err != nil {
+			return nil, fmt.Errorf("new telegram channel: %w", err)
+		}
+		manager.RegisterChannel(telegramCh)
+	}
 	return &GatewayApp{
 		Bus:       bs,
 		Loop:      lp,

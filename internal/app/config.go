@@ -26,7 +26,8 @@ type AgentsConfig struct {
 
 type ChannelsConfig struct {
 	// TODO: support multiple channels
-	Console ConsoleChannelConfig `json:"console,omitempty"`
+	Console  ConsoleChannelConfig  `json:"console,omitempty"`
+	Telegram TelegramChannelConfig `json:"telegram,omitempty"`
 }
 
 type ConsoleChannelConfig struct {
@@ -35,6 +36,11 @@ type ConsoleChannelConfig struct {
 	ChatID     string `json:"chat_id,omitempty"`
 	SenderID   string `json:"sender_id,omitempty"`
 	ShowPrefix bool   `json:"show_prefix,omitempty"`
+}
+
+type TelegramChannelConfig struct {
+	Enabled bool   `json:"enabled"`
+	Token   string `json:"token"`
 }
 
 type ProvidersConfig struct {
@@ -120,6 +126,9 @@ func (cfg *Config) ApplyEnvOverrides() {
 	}
 	if model := os.Getenv("QWEN_MODEL"); model != "" {
 		cfg.Agents.Model = model
+	}
+	if token := os.Getenv("TELEGRAM_BOT_TOKEN"); token != "" {
+		cfg.Channels.Telegram.Token = token
 	}
 }
 
