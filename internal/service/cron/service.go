@@ -90,6 +90,8 @@ func (s *Service) advanceJobAfterRun(job *model.CronJob, runAt time.Time) {
 	switch job.Schedule.Kind {
 	case model.CronScheduleEvery:
 		job.NextRunAt = job.ComputeNextRun(runAt)
+	case model.CronScheduleCron:
+		job.NextRunAt = job.ComputeNextRun(runAt)
 	case model.CronScheduleAt:
 		job.Enabled = false
 		job.NextRunAt = nil

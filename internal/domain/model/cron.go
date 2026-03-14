@@ -3,6 +3,8 @@ package model
 import (
 	"fmt"
 	"time"
+
+	"github.com/robfig/cron/v3"
 )
 
 type CronScheduleKind string
@@ -10,7 +12,7 @@ type CronScheduleKind string
 const (
 	CronScheduleEvery CronScheduleKind = "every"
 	CronScheduleAt    CronScheduleKind = "at"
-	// TODO: cron
+	CronScheduleCron  CronScheduleKind = "cron"
 )
 
 // CronSchedule 任务按什么方式触发
@@ -20,6 +22,10 @@ type CronSchedule struct {
 
 	// At 表示在某个时间点触发一次
 	At *time.Time `json:"at,omitempty"`
+
+	// CronExpr 标准五字段 cron 表达式，如 "0 9 * * *" 表示每天 9:00
+	// 字段顺序：分钟 小时 日 月 星期
+	CronExpr string `json:"cron_expr,omitempty"`
 }
 
 type CronJob struct {
@@ -68,6 +74,16 @@ func (j *CronJob) Validate() error {
 		if j.Schedule.At.IsZero() {
 			return fmt.Errorf("cron job schedule at must be a valid time")
 		}
+	case CronScheduleCron:
+		// 使用 cron 库解析表达式验证合法性
+		if j.Schedule.CronExpr == "" {
+			return fmt.Errorf("cron job schedule cron_expr is required")
+		}
+		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+		_, err := parser.Parse(j.Schedule.CronExpr)
+		if err != nil {
+			return fmt.Errorf("cron job schedule: %w", err)
+		}
 	default:
 		return fmt.Errorf("unsupported cron schedule kind: %s", j.Schedule.Kind)
 	}
@@ -86,6 +102,13 @@ func (j *CronJob) ComputeNextRun(from time.Time) *time.Time {
 			return nil
 		}
 		nextRun := *j.Schedule.At
+		return &nextRun
+	case CronScheduleCron:
+		sche, err := cron.ParseStandard(j.Schedule.CronExpr)
+		if err != nil {
+			return nil
+		}
+		nextRun := sche.Next(from)
 		return &nextRun
 	default:
 		return nil

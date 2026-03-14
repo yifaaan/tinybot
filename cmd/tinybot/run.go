@@ -141,7 +141,7 @@ func runGateway(out io.Writer, workspace string) error {
 
 func runCron(args []string, out io.Writer, workspace string) error {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(out, "Usage: tinybot cron <list|add|add-at|remove|run-once>")
+		_, _ = fmt.Fprintln(out, "Usage: tinybot cron <list|add|add-at|add-cron|remove|run-once>")
 		return nil
 	}
 
@@ -154,6 +154,8 @@ func runCron(args []string, out io.Writer, workspace string) error {
 		return runCronAdd(args[1:], out, repo)
 	case "add-at":
 		return runCronAddAt(args[1:], out, repo)
+	case "add-cron":
+		return runCronAddCron(args[1:], out, repo)
 	case "remove":
 		return runCronRemove(args[1:], out, repo)
 	case "run-once":
@@ -195,6 +197,8 @@ func formatCronSchedule(job model.CronJob) string {
 			return "at=<nil>"
 		}
 		return fmt.Sprintf("at=%s", job.Schedule.At.Format(time.RFC3339))
+	case model.CronScheduleCron:
+		return fmt.Sprintf("cron=%s", job.Schedule.CronExpr)
 
 	default:
 		return fmt.Sprintf("schedule=%s", job.Schedule.Kind)
@@ -254,6 +258,58 @@ func runCronAdd(args []string, out io.Writer, repo cronservice.Repository) error
 		return fmt.Errorf("cron add save jobs: %w", err)
 	}
 	_, _ = fmt.Fprintf(out, "Added cron job %s (%s)\n", job.Name, job.ID)
+	return nil
+}
+
+// tinybot cron add-cron <name> <cron_expr> <prompt>
+// 示例: tinybot cron add-cron morning "0 9 * * *" "早上好，今天有什么安排？"
+func runCronAddCron(args []string, out io.Writer, repo cronservice.Repository) error {
+	if len(args) < 3 {
+		return fmt.Errorf("usage tinybot cron add-cron <name> <cron_expr> <prompt>")
+	}
+
+	name := strings.TrimSpace(args[0])
+	cronExpr := strings.TrimSpace(args[1])
+	prompt := strings.TrimSpace(strings.Join(args[2:], " "))
+
+	if name == "" {
+		return fmt.Errorf("cron add cron: name is requried")
+	}
+	if prompt == "" {
+		return fmt.Errorf("cron add cron: prompt is required")
+	}
+	ctx := context.Background()
+	jobs, err := repo.ListJobs(ctx)
+	if err != nil {
+		return fmt.Errorf("cron add cron list jobs: %w", err)
+	}
+
+	now := time.Now()
+	jobID := fmt.Sprintf("job-%d", now.UnixNano())
+	job := model.CronJob{
+		ID:         jobID,
+		Name:       name,
+		Enabled:    true,
+		Prompt:     prompt,
+		SessionKey: "cron:" + jobID,
+		Schedule: model.CronSchedule{
+			Kind:     model.CronScheduleCron,
+			CronExpr: cronExpr,
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	job.NextRunAt = job.ComputeNextRun(now)
+
+	if err := job.Validate(); err != nil {
+		return fmt.Errorf("cron and validate job: %w", err)
+	}
+
+	jobs = append(jobs, job)
+	if err := repo.SaveJobs(ctx, jobs); err != nil {
+		return fmt.Errorf("cron add save jobs: %w", err)
+	}
+	_, _ = fmt.Fprintf(out, "Added cron job %s (%s) schedule=%s\n", job.Name, job.ID, cronExpr)
 	return nil
 }
 
