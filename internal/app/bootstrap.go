@@ -42,7 +42,15 @@ func NewApp(workspace string) (*App, error) {
 	// 初始化工具注册表，并注册工具
 	toolRegistry := buildCoreToolRegistry(workspace, cfg)
 
-	consolidator := chatservice.NewConsolidator(llm, 8192, 10)
+	// 初始化会话整合器
+	var consolidator *chatservice.Consolidator
+	if cfg.Agents.Consolidation.Enabled {
+		consolidator = chatservice.NewConsolidator(
+			llm,
+			cfg.Agents.Consolidation.TokenLimit,
+			cfg.Agents.Consolidation.KeepRecent,
+		)
+	}
 	chatService, err := chatservice.NewService(
 		sessionRepo,
 		llm,

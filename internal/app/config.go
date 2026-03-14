@@ -22,6 +22,17 @@ type AgentsConfig struct {
 	MaxTokens         int     `json:"max_tokens"`
 	Temperature       float64 `json:"temperature"`
 	MaxToolIterations int     `json:"max_tool_iterations"`
+	Consolidation     ConsolidationConfig `json:"consolidation,omitempty"`
+}
+
+// ConsolidationConfig 控制会话历史压缩行为
+type ConsolidationConfig struct {
+	// Enabled 是否启用会话整合，默认 true
+	Enabled bool `json:"enabled"`
+	// TokenLimit 触发整合的 token 阈值，默认 60000
+	TokenLimit int `json:"token_limit"`
+	// KeepRecent 保留最近几条消息不压缩，默认 10
+	KeepRecent int `json:"keep_recent"`
 }
 
 type ChannelsConfig struct {
@@ -85,6 +96,11 @@ func DefaultConfig() *Config {
 			MaxTokens:         8192,
 			Temperature:       0.7,
 			MaxToolIterations: 20,
+			Consolidation: ConsolidationConfig{
+				Enabled:    true,
+				TokenLimit: 60000,
+				KeepRecent: 10,
+			},
 		},
 		Channels: ChannelsConfig{
 			Console: ConsoleChannelConfig{
