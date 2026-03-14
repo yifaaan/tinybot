@@ -87,14 +87,29 @@ func newLLMClientFromConfig(cfg *Config) (chatservice.CompletionClient, error) {
 		return nil, fmt.Errorf("llm config is nil")
 	}
 
-	apiKey := strings.TrimSpace(cfg.Providers.QWen.ApiKey)
-	apiBase := strings.TrimSpace(cfg.Providers.QWen.ApiBase)
-	model := strings.TrimSpace(cfg.Agents.Model)
+	name, entry, err := cfg.ActiveProvider()
+	if err != nil {
+		return nil, fmt.Errorf("resolve provider: %w", err)
+
+	}
+	apiKey := strings.TrimSpace(entry.ApiKey)
+	apiBase := strings.TrimSpace(entry.ApiBase)
+	model := strings.TrimSpace(entry.Model)
 
 	if apiKey == "" {
-		return nil, fmt.Errorf("missing qwen api key: set it in workspace config or env")
+		return nil, fmt.Errorf("provider %q: api key is required (set in config or env)", name)
 	}
-	return provider.NewQwenProvider(apiKey, apiBase, model)
+	if apiBase == "" {
+		return nil, fmt.Errorf("provider %q: api base is required", name)
+	}
+
+	registry := provider.DefaultRegistry()
+	return registry.Create(
+		entry.Kind,
+		apiKey,
+		apiBase,
+		model,
+	)
 }
 
 func buildCoreToolRegistry(workspace string, cfg *Config) *tool.Registry {

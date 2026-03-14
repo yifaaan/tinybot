@@ -14,8 +14,13 @@ func TestDefaultConfig(t *testing.T) {
 		t.Fatal("DefaultConfig() returned nil")
 	}
 
-	if cfg.Agents.Model != "qwen3-max" {
-		t.Fatalf("Agents.Model = %q, want %q", cfg.Agents.Model, "qwen3-max")
+	if cfg.Providers.Active != "qwen" {
+		t.Fatalf("Providers.Active = %q, want %q", cfg.Providers.Active, "qwen")
+	}
+	if entry, ok := cfg.Providers.List["qwen"]; !ok {
+		t.Fatal("Providers.List missing 'qwen' entry")
+	} else if entry.Model != "qwen3-max" {
+		t.Fatalf("qwen provider Model = %q, want %q", entry.Model, "qwen3-max")
 	}
 	if !cfg.Heartbeat.Enabled {
 		t.Fatalf("Heartbeat.Enabled = false, want true")
@@ -33,15 +38,19 @@ func TestLoadConfig_OverridesHeartbeatFromFile(t *testing.T) {
 	configJSON := `{
   "agents": {
     "workspace": ".tinybot/workspace",
-    "model": "qwen3-max",
     "max_tokens": 8192,
     "temperature": 0.7,
     "max_tool_iterations": 20
   },
   "providers": {
-    "qwen": {
-      "api_key": "sk-your-openai-key-here",
-      "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    "active": "qwen",
+    "list": {
+      "qwen": {
+        "kind": "qwen",
+        "api_key": "sk-your-openai-key-here",
+        "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "model": "qwen3-max"
+      }
     }
   },
   "heartbeat": {

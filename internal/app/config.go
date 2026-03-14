@@ -17,11 +17,10 @@ type Config struct {
 }
 
 type AgentsConfig struct {
-	Workspace         string  `json:"workspace"`
-	Model             string  `json:"model"`
-	MaxTokens         int     `json:"max_tokens"`
-	Temperature       float64 `json:"temperature"`
-	MaxToolIterations int     `json:"max_tool_iterations"`
+	Workspace         string              `json:"workspace"`
+	MaxTokens         int                 `json:"max_tokens"`
+	Temperature       float64             `json:"temperature"`
+	MaxToolIterations int                 `json:"max_tool_iterations"`
 	Consolidation     ConsolidationConfig `json:"consolidation,omitempty"`
 }
 
@@ -54,12 +53,44 @@ type TelegramChannelConfig struct {
 	Token   string `json:"token"`
 }
 
+// ProvidersConfig 支持多个命名 provider，通过 Active 指定当前使用哪个。
+//
+// 配置文件示例：
+//
+//	{
+//	  "providers": {
+//	    "active": "qwen",           ← 当前生效的 provider 名称
+//	    "list": {
+//	      "qwen": {
+//	        "kind": "openai",       ← 对应 registry 中注册的类型
+//	        "api_key": "sk-xxx",
+//	        "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+//	        "model": "qwen3-max"
+//	      },
+//	      "deepseek": {
+//	        "kind": "deepseek",
+//	        "api_key": "sk-yyy",
+//	        "api_base": "https://api.deepseek.com",
+//	        "model": "deepseek-chat"
+//	      }
+//	    }
+//	  }
+//	}
+//
+// 设计决策：
+//   - model 放在 provider 级别而不是 agents 级别，
+//     因为不同 provider 支持的模型名不同
+//   - Active 是一个简单字符串，不是数组 —— 当前不支持"同时用多个 provider"
+//   - list 用 map[string]ProviderEntry 而不是 []ProviderEntry，
+//     这样可以通过名称直接查找，也方便环境变量覆盖
 type ProvidersConfig struct {
-	// TODO: support multiple providers
-	QWen ProviderConfig `json:"qwen"`
+	Active string                   `json:"active"`
+	List   map[string]ProviderEntry `json:"list"`
 }
 
-type ProviderConfig struct {
+type ProviderEntry struct {
+	Kind    string `json:"kind"`
+	Model   string `json:"model"`
 	ApiKey  string `json:"api_key"`
 	ApiBase string `json:"api_base"`
 }
@@ -92,7 +123,6 @@ func DefaultConfig() *Config {
 	return &Config{
 		Agents: AgentsConfig{
 			Workspace:         DefaultWorkspacePath(),
-			Model:             "qwen3-max",
 			MaxTokens:         8192,
 			Temperature:       0.7,
 			MaxToolIterations: 20,
@@ -112,9 +142,14 @@ func DefaultConfig() *Config {
 			},
 		},
 		Providers: ProvidersConfig{
-			QWen: ProviderConfig{
-				ApiKey:  "",
-				ApiBase: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+			Active: "qwen",
+			List: map[string]ProviderEntry{
+				"qwen": {
+					Kind:    "qwen",
+					ApiKey:  "",
+					ApiBase: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+					Model:   "qwen3-max",
+				},
 			},
 		},
 		Tools: ToolsConfig{
@@ -134,38 +169,58 @@ func (cfg *Config) ApplyEnvOverrides() {
 	if cfg == nil {
 		return
 	}
+	if cfg.Providers.List == nil {
+		cfg.Providers.List = make(map[string]ProviderEntry)
+	}
+
+	qwen := cfg.Providers.List["qwen"]
 	if apiKey := os.Getenv("QWEN_API_KEY"); apiKey != "" {
-		cfg.Providers.QWen.ApiKey = apiKey
+		qwen.ApiKey = apiKey
 	}
 	if apiBase := os.Getenv("QWEN_API_BASE"); apiBase != "" {
-		cfg.Providers.QWen.ApiBase = apiBase
+		qwen.ApiBase = apiBase
 	}
 	if model := os.Getenv("QWEN_MODEL"); model != "" {
-		cfg.Agents.Model = model
+		qwen.Model = model
 	}
+	qwen.Kind = "qwen"
+	cfg.Providers.List["qwen"] = qwen
+
 	if token := os.Getenv("TELEGRAM_BOT_TOKEN"); token != "" {
 		cfg.Channels.Telegram.Token = token
 	}
+}
+
+func (c *Config) ActiveProvider() (string, ProviderEntry, error) {
+	name := c.Providers.Active
+	if name == "" {
+		return "", ProviderEntry{}, fmt.Errorf("no active provider")
+	}
+	entry, ok := c.Providers.List[name]
+	if !ok {
+		return "", ProviderEntry{}, fmt.Errorf("active provider %s not found in config", name)
+	}
+	return name, entry, nil
 }
 
 func (cfg *Config) WorkspacePath() (string, error) {
 	return utils.ExpandUser(cfg.Agents.Workspace)
 }
 
-func (cfg *Config) GetAPIKey(providerName string) string {
-	switch providerName {
+func (cfg *Config) GetAPIKey(kind string) string {
+	switch kind {
 	case "qwen":
-		return cfg.Providers.QWen.ApiKey
+		return cfg.Providers.List[kind].ApiKey
 	// TODO: support more providers
 	default:
 		return ""
 	}
 }
 
-func (cfg *Config) GetAPIBase(providerName string) string {
-	switch providerName {
+func (cfg *Config) GetAPIBase(kind string) string {
+	switch kind {
 	case "qwen":
-		return cfg.Providers.QWen.ApiBase
+		return cfg.Providers.List[kind].ApiBase
 	// TODO: support more providers
 	default:
 		return ""
