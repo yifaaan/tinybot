@@ -429,3 +429,36 @@ func TestGatewayApp_Run_ConsoleFallbackOnProcessorError(t *testing.T) {
 		t.Fatalf("GatewayApp.Run() error: %v", err)
 	}
 }
+
+func TestBusResultDispatcher_DispatchPublishesOutbound(t *testing.T) {
+	bus := transportbus.NewMemoryBus(1)
+	defer bus.Close()
+
+	dispatcher := &busResultDispatcher{bus: bus}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	want := model.OutboundMessage{
+		Channel: model.ChannelTelegram,
+		ChatID:  "chat-42",
+		Content: "cron delivery",
+	}
+
+	if err := dispatcher.Dispatch(ctx, want); err != nil {
+		t.Fatalf("Dispatch() error: %v", err)
+	}
+
+	got, err := bus.ConsumeOutbound(ctx)
+	if err != nil {
+		t.Fatalf("ConsumeOutbound() error: %v", err)
+	}
+	if got.Channel != want.Channel {
+		t.Fatalf("got.Channel = %q, want %q", got.Channel, want.Channel)
+	}
+	if got.ChatID != want.ChatID {
+		t.Fatalf("got.ChatID = %q, want %q", got.ChatID, want.ChatID)
+	}
+	if got.Content != want.Content {
+		t.Fatalf("got.Content = %q, want %q", got.Content, want.Content)
+	}
+}

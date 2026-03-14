@@ -183,3 +183,49 @@ func TestFileCronRepository_SaveJobs_ThenListJobs_WithAtSchedule(t *testing.T) {
 		t.Fatalf("got[0].Schedule.At = %v, want %v", got[0].Schedule.At, want[0].Schedule.At)
 	}
 }
+
+func TestFileCronRepository_SaveJobs_ThenListJobs_WithDeliveryTarget(t *testing.T) {
+	workspace := newTestWorkspace(t)
+	repo := NewFileCronRepository(workspace)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	next := now.Add(10 * time.Minute)
+
+	want := []model.CronJob{
+		{
+			ID:             "job-delivery",
+			Name:           "notify-telegram",
+			Enabled:        true,
+			Prompt:         "send summary",
+			DeliverChannel: model.ChannelTelegram,
+			DeliverTo:      "chat-42",
+			SessionKey:     "cron:job-delivery",
+			Schedule: model.CronSchedule{
+				Kind:         model.CronScheduleEvery,
+				EverySeconds: 600,
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
+			NextRunAt: &next,
+		},
+	}
+
+	if err := repo.SaveJobs(context.Background(), want); err != nil {
+		t.Fatalf("SaveJobs() error: %v", err)
+	}
+
+	got, err := repo.ListJobs(context.Background())
+	if err != nil {
+		t.Fatalf("ListJobs() error: %v", err)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1", len(got))
+	}
+	if got[0].DeliverChannel != model.ChannelTelegram {
+		t.Fatalf("got[0].DeliverChannel = %q, want %q", got[0].DeliverChannel, model.ChannelTelegram)
+	}
+	if got[0].DeliverTo != "chat-42" {
+		t.Fatalf("got[0].DeliverTo = %q, want %q", got[0].DeliverTo, "chat-42")
+	}
+}

@@ -319,7 +319,7 @@ func runCronRunOnce(out io.Writer, workspace string, repo cronservice.Repository
 		return fmt.Errorf("cron run-once new app: %w", err)
 	}
 
-	svc, err := cronservice.NewService(repo, appInstance.ChatService)
+	svc, err := cronservice.NewService(repo, appInstance.ChatService, nil)
 	if err != nil {
 		return err
 	}

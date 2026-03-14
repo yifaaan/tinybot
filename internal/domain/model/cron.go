@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -15,27 +16,23 @@ const (
 	CronScheduleCron  CronScheduleKind = "cron"
 )
 
-// CronSchedule 任务按什么方式触发
+// CronSchedule describes when a job should run.
 type CronSchedule struct {
 	Kind         CronScheduleKind `json:"kind"`
 	EverySeconds int              `json:"every_seconds,omitempty"`
-
-	// At 表示在某个时间点触发一次
-	At *time.Time `json:"at,omitempty"`
-
-	// CronExpr 标准五字段 cron 表达式，如 "0 9 * * *" 表示每天 9:00
-	// 字段顺序：分钟 小时 日 月 星期
-	CronExpr string `json:"cron_expr,omitempty"`
+	At           *time.Time       `json:"at,omitempty"`
+	CronExpr     string           `json:"cron_expr,omitempty"`
 }
 
 type CronJob struct {
-	ID         string       `json:"id"`
-	Name       string       `json:"name"`
-	Enabled    bool         `json:"enabled"`
-	Schedule   CronSchedule `json:"schedule"`
-	Prompt     string       `json:"prompt"`
-	DeliverTo  string       `json:"deliver_to,omitempty"`
-	SessionKey string       `json:"session_key"`
+	ID             string       `json:"id"`
+	Name           string       `json:"name"`
+	Enabled        bool         `json:"enabled"`
+	Schedule       CronSchedule `json:"schedule"`
+	Prompt         string       `json:"prompt"`
+	DeliverChannel Channel      `json:"deliver_channel,omitempty"`
+	DeliverTo      string       `json:"deliver_to,omitempty"`
+	SessionKey     string       `json:"session_key"`
 
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
@@ -51,6 +48,28 @@ func (j CronJob) IsDue(now time.Time) bool {
 	return j.Enabled && j.NextRunAt != nil && !now.Before(*j.NextRunAt)
 }
 
+// HasDeliveryTarget reports whether the job is configured to deliver its
+// result to a concrete channel target.
+func (j CronJob) HasDeliveryTarget() bool {
+	return strings.TrimSpace(string(j.DeliverChannel)) != "" && strings.TrimSpace(j.DeliverTo) != ""
+}
+
+func (j CronJob) validateDeliveryTarget() error {
+	channel := strings.TrimSpace(string(j.DeliverChannel))
+	to := strings.TrimSpace(j.DeliverTo)
+
+	switch {
+	case channel == "" && to == "":
+		return nil
+	case channel == "":
+		return fmt.Errorf("cron job deliver_channel is required when deliver_to is set")
+	case to == "":
+		return fmt.Errorf("cron job deliver_to is required when deliver_channel is set")
+	default:
+		return nil
+	}
+}
+
 func (j *CronJob) Validate() error {
 	if j.Name == "" {
 		return fmt.Errorf("cron job name is required")
@@ -60,6 +79,9 @@ func (j *CronJob) Validate() error {
 	}
 	if j.Prompt == "" {
 		return fmt.Errorf("cron job prompt is required")
+	}
+	if err := j.validateDeliveryTarget(); err != nil {
+		return err
 	}
 
 	switch j.Schedule.Kind {
@@ -75,7 +97,6 @@ func (j *CronJob) Validate() error {
 			return fmt.Errorf("cron job schedule at must be a valid time")
 		}
 	case CronScheduleCron:
-		// 使用 cron 库解析表达式验证合法性
 		if j.Schedule.CronExpr == "" {
 			return fmt.Errorf("cron job schedule cron_expr is required")
 		}
@@ -91,7 +112,7 @@ func (j *CronJob) Validate() error {
 	return nil
 }
 
-// ComputeNextRun 根据调度类型计算“下一次执行时间
+// ComputeNextRun computes the next execution time for the configured schedule.
 func (j *CronJob) ComputeNextRun(from time.Time) *time.Time {
 	switch j.Schedule.Kind {
 	case CronScheduleEvery:

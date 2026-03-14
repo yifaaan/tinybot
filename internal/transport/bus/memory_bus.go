@@ -45,6 +45,11 @@ func NewMemoryBus(bufferSize int) *MemoryBus {
 
 // PublishInbound enqueues an inbound message for the gateway loop.
 func (b *MemoryBus) PublishInbound(ctx context.Context, msg model.InboundMessage) error {
+	// If the caller already canceled the operation, return that error
+	// deterministically instead of letting select randomly pick a ready send.
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("publish inbound: %w", err)
+	}
 	if b.closeFlag.Load() {
 		return transport.ErrBusClosed
 	}
@@ -60,6 +65,9 @@ func (b *MemoryBus) PublishInbound(ctx context.Context, msg model.InboundMessage
 
 // ConsumeInbound dequeues the next inbound message for the gateway loop.
 func (b *MemoryBus) ConsumeInbound(ctx context.Context) (model.InboundMessage, error) {
+	if err := ctx.Err(); err != nil {
+		return model.InboundMessage{}, fmt.Errorf("consume inbound: %w", err)
+	}
 	if b.closeFlag.Load() {
 		return model.InboundMessage{}, transport.ErrBusClosed
 	}
@@ -75,6 +83,9 @@ func (b *MemoryBus) ConsumeInbound(ctx context.Context) (model.InboundMessage, e
 
 // PublishOutbound enqueues an outbound message for channel delivery.
 func (b *MemoryBus) PublishOutbound(ctx context.Context, msg model.OutboundMessage) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("publish outbound: %w", err)
+	}
 	if b.closeFlag.Load() {
 		return transport.ErrBusClosed
 	}
@@ -90,6 +101,9 @@ func (b *MemoryBus) PublishOutbound(ctx context.Context, msg model.OutboundMessa
 
 // ConsumeOutbound dequeues the next outbound message for channel delivery.
 func (b *MemoryBus) ConsumeOutbound(ctx context.Context) (model.OutboundMessage, error) {
+	if err := ctx.Err(); err != nil {
+		return model.OutboundMessage{}, fmt.Errorf("consume outbound: %w", err)
+	}
 	if b.closeFlag.Load() {
 		return model.OutboundMessage{}, transport.ErrBusClosed
 	}

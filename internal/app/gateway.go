@@ -22,6 +22,17 @@ type messageToolRegistry interface {
 	SetMessageCallback(callback tool.SendMessageCallback)
 }
 
+type busResultDispatcher struct {
+	bus transport.MessageBus
+}
+
+func (d *busResultDispatcher) Dispatch(ctx context.Context, msg model.OutboundMessage) error {
+	if d == nil || d.bus == nil {
+		return fmt.Errorf("cron result dispatcher: message bus is nil")
+	}
+	return d.bus.PublishOutbound(ctx, msg)
+}
+
 // wireMessageToolToBus 把 message tool 的发送动作接到 outbound bus 上。
 func wireMessageToolToBus(registry messageToolRegistry, bus transport.MessageBus) {
 	if registry == nil || bus == nil {
@@ -49,6 +60,7 @@ func NewGatewayApp(workspace string, input io.Reader, output io.Writer) (*Gatewa
 	}
 
 	bs := transportbus.NewMemoryBus(16)
+	dispatcher := &busResultDispatcher{bus: bs}
 	app.Tools.Register(tool.NewMessageTool(nil, model.ChannelCLI, ""))
 	wireMessageToolToBus(app.Tools, bs)
 
@@ -61,7 +73,7 @@ func NewGatewayApp(workspace string, input io.Reader, output io.Writer) (*Gatewa
 	}
 
 	cronRepo := cronrepo.NewFileCronRepository(workspace)
-	cronSvc, err := cronservice.NewService(cronRepo, app.ChatService)
+	cronSvc, err := cronservice.NewService(cronRepo, app.ChatService, dispatcher)
 	if err != nil {
 		return nil, err
 	}

@@ -50,6 +50,18 @@ type fakeCronAgent struct {
 	calls   []struct{ sessionKey, content string }
 }
 
+type fakeResultDispatcher struct {
+	err     error
+	lastCtx context.Context
+	calls   []model.OutboundMessage
+}
+
+func (d *fakeResultDispatcher) Dispatch(ctx context.Context, msg model.OutboundMessage) error {
+	d.lastCtx = ctx
+	d.calls = append(d.calls, msg)
+	return d.err
+}
+
 func (a *fakeCronAgent) ProcessDirect(ctx context.Context, sessionKey string, content string) (string, error) {
 	a.lastCtx = ctx
 	a.calls = append(a.calls, struct{ sessionKey, content string }{sessionKey, content})
@@ -60,13 +72,13 @@ func TestNewService(t *testing.T) {
 	repo := &fakeCronRepo{}
 	agent := &fakeCronAgent{}
 
-	if _, err := NewService(nil, agent); err == nil {
+	if _, err := NewService(nil, agent, nil); err == nil {
 		t.Fatal("expected error when repo is nil")
 	}
-	if _, err := NewService(repo, nil); err == nil {
+	if _, err := NewService(repo, nil, nil); err == nil {
 		t.Fatal("expected error when agent is nil")
 	}
-	if _, err := NewService(repo, agent); err != nil {
+	if _, err := NewService(repo, agent, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -90,7 +102,7 @@ func TestService_TriggerOnce_ExecutesDueJob(t *testing.T) {
 	}
 	agent := &fakeCronAgent{resp: "done"}
 
-	svc, err := NewService(repo, agent)
+	svc, err := NewService(repo, agent, nil)
 	if err != nil {
 		t.Fatalf("NewService() error: %v", err)
 	}
@@ -126,6 +138,54 @@ func TestService_TriggerOnce_ExecutesDueJob(t *testing.T) {
 	}
 }
 
+func TestService_TriggerOnce_DispatchesResultWhenJobHasDeliveryTarget(t *testing.T) {
+	past := time.Now().Add(-1 * time.Minute)
+	repo := &fakeCronRepo{
+		jobs: []model.CronJob{
+			{
+				ID:             "job-delivery",
+				Name:           "notify",
+				Enabled:        true,
+				Prompt:         "send summary",
+				SessionKey:     "cron:job-delivery",
+				DeliverChannel: model.ChannelTelegram,
+				DeliverTo:      "chat-42",
+				Schedule: model.CronSchedule{
+					Kind:         model.CronScheduleEvery,
+					EverySeconds: 300,
+				},
+				NextRunAt: &past,
+			},
+		},
+	}
+	agent := &fakeCronAgent{resp: "daily summary ready"}
+	dispatcher := &fakeResultDispatcher{}
+
+	svc, err := NewService(repo, agent, dispatcher)
+	if err != nil {
+		t.Fatalf("NewService() error: %v", err)
+	}
+
+	if _, err := svc.TriggerOnce(context.Background()); err != nil {
+		t.Fatalf("TriggerOnce() error: %v", err)
+	}
+
+	if len(dispatcher.calls) != 1 {
+		t.Fatalf("len(dispatcher.calls) = %d, want 1", len(dispatcher.calls))
+	}
+
+	got := dispatcher.calls[0]
+	if got.Channel != model.ChannelTelegram {
+		t.Fatalf("got.Channel = %q, want %q", got.Channel, model.ChannelTelegram)
+	}
+	if got.ChatID != "chat-42" {
+		t.Fatalf("got.ChatID = %q, want %q", got.ChatID, "chat-42")
+	}
+	if got.Content != "daily summary ready" {
+		t.Fatalf("got.Content = %q, want %q", got.Content, "daily summary ready")
+	}
+}
+
 func TestService_TriggerOnce_RecordsAgentError(t *testing.T) {
 	past := time.Now().Add(-1 * time.Minute)
 	repo := &fakeCronRepo{
@@ -146,7 +206,7 @@ func TestService_TriggerOnce_RecordsAgentError(t *testing.T) {
 		err:  errors.New("agent failed"),
 	}
 
-	svc, err := NewService(repo, agent)
+	svc, err := NewService(repo, agent, nil)
 	if err != nil {
 		t.Fatalf("NewService() error: %v", err)
 	}
@@ -187,7 +247,7 @@ func TestService_TriggerOnce_PropagatesContextToRepoAndAgent(t *testing.T) {
 	}
 	agent := &fakeCronAgent{resp: "done"}
 
-	svc, err := NewService(repo, agent)
+	svc, err := NewService(repo, agent, nil)
 	if err != nil {
 		t.Fatalf("NewService() error: %v", err)
 	}
@@ -239,7 +299,7 @@ func TestService_TriggerOnce_DisablesAtJobAfterRun(t *testing.T) {
 	}
 	agent := &fakeCronAgent{resp: "done"}
 
-	svc, err := NewService(repo, agent)
+	svc, err := NewService(repo, agent, nil)
 	if err != nil {
 		t.Fatalf("NewService() error: %v", err)
 	}
@@ -259,5 +319,90 @@ func TestService_TriggerOnce_DisablesAtJobAfterRun(t *testing.T) {
 	}
 	if got.NextRunAt != nil {
 		t.Fatalf("NextRunAt = %v, want nil", got.NextRunAt)
+	}
+}
+
+func TestService_TriggerOnce_RecordsDispatchError(t *testing.T) {
+	past := time.Now().Add(-1 * time.Minute)
+
+	repo := &fakeCronRepo{
+		jobs: []model.CronJob{
+			{
+				ID:             "job-dispatch-error",
+				Name:           "notify",
+				Enabled:        true,
+				Prompt:         "send summary",
+				SessionKey:     "cron:job-dispatch-error",
+				DeliverChannel: model.ChannelTelegram,
+				DeliverTo:      "chat-42",
+				Schedule: model.CronSchedule{
+					Kind:         model.CronScheduleEvery,
+					EverySeconds: 300,
+				},
+				NextRunAt: &past,
+			},
+		},
+	}
+	agent := &fakeCronAgent{resp: "daily summary ready"}
+	dispatcher := &fakeResultDispatcher{
+		err: errors.New("dispatch failed"),
+	}
+
+	svc, err := NewService(repo, agent, dispatcher)
+	if err != nil {
+		t.Fatalf("NewService() error: %v", err)
+	}
+
+	if _, err := svc.TriggerOnce(context.Background()); err != nil {
+		t.Fatalf("TriggerOnce() error = %v, want nil", err)
+	}
+
+	if len(repo.saved) != 1 {
+		t.Fatalf("len(repo.saved) = %d, want 1", len(repo.saved))
+	}
+
+	got := repo.saved[0]
+
+	if got.LastResult != "daily summary ready" {
+		t.Fatalf("LastResult = %q, want %q", got.LastResult, "daily summary ready")
+	}
+	if got.LastError == "" {
+		t.Fatal("LastError = empty, want non-empty")
+	}
+}
+
+func TestService_TriggerOnce_SkipsDispatchWithoutDeliveryTarget(t *testing.T) {
+	past := time.Now().Add(-1 * time.Minute)
+
+	repo := &fakeCronRepo{
+		jobs: []model.CronJob{
+			{
+				ID:         "job-no-delivery",
+				Name:       "notify",
+				Enabled:    true,
+				Prompt:     "send summary",
+				SessionKey: "cron:job-no-delivery",
+				Schedule: model.CronSchedule{
+					Kind:         model.CronScheduleEvery,
+					EverySeconds: 300,
+				},
+				NextRunAt: &past,
+			},
+		},
+	}
+	agent := &fakeCronAgent{resp: "daily summary ready"}
+	dispatcher := &fakeResultDispatcher{}
+
+	svc, err := NewService(repo, agent, dispatcher)
+	if err != nil {
+		t.Fatalf("NewService() error: %v", err)
+	}
+
+	if _, err := svc.TriggerOnce(context.Background()); err != nil {
+		t.Fatalf("TriggerOnce() error: %v", err)
+	}
+
+	if len(dispatcher.calls) != 0 {
+		t.Fatalf("len(dispatcher.calls) = %d, want 0", len(dispatcher.calls))
 	}
 }
