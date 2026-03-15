@@ -102,7 +102,6 @@ type HeartbeatConfig struct {
 	IntervalSeconds int  `json:"interval_seconds"`
 }
 
-
 type ToolsConfig struct {
 	// TODO: support multiple tools
 	WebSearch WebSearchConfig `json:"web_search,omitempty"`
@@ -152,6 +151,12 @@ func DefaultConfig() *Config {
 					ApiKey:  "",
 					ApiBase: "https://dashscope.aliyuncs.com/compatible-mode/v1",
 					Model:   "qwen3-max",
+				},
+				"openai": {
+					Kind:    "openai",
+					ApiKey:  "",
+					ApiBase: "https://api.openai.com/v1",
+					Model:   "gpt-4o-mini",
 				},
 			},
 		},

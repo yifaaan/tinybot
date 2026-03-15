@@ -49,7 +49,9 @@ func DefaultRegistry() *Registry {
 		// TODO: rename to OpenAICompatProvider
 	}
 
-	r.Register("openai", openAIFactory)
+	r.Register("openai", func(apiKey, apiBase, model string) (chat.CompletionClient, error) {
+		return NewOpenAIProvider(apiKey, apiBase, model)
+	})
 	r.Register("qwen", openAIFactory)
 	r.Register("ollama", openAIFactory)
 	r.Register("deepseek", openAIFactory)
