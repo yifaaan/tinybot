@@ -38,28 +38,19 @@ type MessageBus interface {
 }
 
 // MessageProcessor handles one inbound message and returns the outbound reply.
-//
-// Responsibilities: bridge the gateway runtime to the service layer without leaking gateway details into services.
-// Inputs: a domain inbound message.
-// Outputs: a domain outbound message or an error.
-// State changes: delegated to the concrete service implementation.
-// Side effects: delegated to the concrete service implementation, such as LLM calls or session writes.
-// Compatibility: this matches the current chat service signature so the gateway loop stays transport-only.
 type MessageProcessor interface {
 	ProcessMessage(ctx context.Context, msg model.InboundMessage) (model.OutboundMessage, error)
 }
 
+// StreamingMessageProcessor 支持流式输出的消息处理器
+type StreamingMessageProcessor interface {
+	// ProcessMessageStream 流式处理消息。
+	// onDelta 会在每个文本增量到达时被调用。
+	// 返回值是完整的 OutboundMessage，用于记录和后续处理。
+	ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(delta string)) (model.OutboundMessage, error)
+}
+
 // Channel represents an external chat transport connected to the gateway runtime.
-//
-// Responsibilities:
-//   - read from an external source and publish inbound messages to the bus
-//   - send outbound messages back to the external source
-//
-// Inputs: a context for lifecycle control and outbound messages for delivery.
-// Outputs: lifecycle errors from Start or delivery errors from Send.
-// State changes: implementation-specific runtime state such as active connections or prompt rendering.
-// Side effects: may read stdin, write stdout, or call external APIs/SDKs.
-// Compatibility: this aligns with nanobot's channel abstraction while keeping the boundary explicit in Go.
 type Channel interface {
 	Name() model.Channel
 	Start(ctx context.Context) error

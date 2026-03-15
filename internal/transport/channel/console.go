@@ -114,12 +114,13 @@ func (c *ConsoleChannel) Start(ctx context.Context) error {
 			}
 
 			msg := model.InboundMessage{
-				ID:        fmt.Sprintf("console-%d", time.Now().UnixNano()),
-				Channel:   model.ChannelCLI,
-				SenderID:  c.cfg.SenderID,
-				ChatID:    c.cfg.ChatID,
-				Content:   line,
-				CreatedAt: time.Now(),
+				ID:           fmt.Sprintf("console-%d", time.Now().UnixNano()),
+				Channel:      model.ChannelCLI,
+				SenderID:     c.cfg.SenderID,
+				ChatID:       c.cfg.ChatID,
+				Content:      line,
+				CreatedAt:    time.Now(),
+				StreamWriter: c,
 			}
 			if err := c.bus.PublishInbound(ctx, msg); err != nil {
 				if errors.Is(err, transport.ErrBusClosed) || errors.Is(err, context.Canceled) {
@@ -141,6 +142,9 @@ func (c *ConsoleChannel) Send(ctx context.Context, out model.OutboundMessage) er
 		if strings.TrimSpace(out.Content) == "" {
 			return nil
 		}
+		if out.Streamed {
+			return c.writePromptOnly()
+		}
 		if err := c.writeReplyAndPrompt(out.Content); err != nil {
 			return fmt.Errorf("console channel write reply: %w", err)
 		}
@@ -153,6 +157,18 @@ func (c *ConsoleChannel) writePrompt() error {
 	defer c.outMu.Unlock()
 
 	_, err := fmt.Fprintf(c.output, "%s ", c.cfg.Prompt)
+	return err
+}
+
+// writePromptOnly 只打印换行和提示符，用于流式输出结束后
+func (c *ConsoleChannel) writePromptOnly() error {
+	c.outMu.Lock()
+	defer c.outMu.Unlock()
+
+	if _, err := fmt.Fprintln(c.output); err != nil {
+		return err
+	}
+	_, err := fmt.Fprint(c.output, c.cfg.Prompt)
 	return err
 }
 
@@ -172,4 +188,25 @@ func (c *ConsoleChannel) writeReplyAndPrompt(text string) error {
 
 	_, err := fmt.Fprint(c.output, c.cfg.Prompt)
 	return err
+}
+
+func (c *ConsoleChannel) WriteDelta(delta string) error {
+	c.outMu.Lock()
+	defer c.outMu.Unlock()
+
+	// 演示用：模拟逐字效果（生产环境可移除此延迟）
+	time.Sleep(30 * time.Millisecond)
+
+	_, err := fmt.Fprint(c.output, delta)
+	return err
+}
+
+func (c *ConsoleChannel) Flush() error {
+	c.outMu.Lock()
+	defer c.outMu.Unlock()
+
+	if flusher, ok := c.output.(interface{ Flush() error }); ok {
+		return flusher.Flush()
+	}
+	return nil
 }

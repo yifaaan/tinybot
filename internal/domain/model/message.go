@@ -54,6 +54,10 @@ type InboundMessage struct {
 	Metadata           map[string]any
 	CreatedAt          time.Time
 	SessionKeyOverride *string // Optional override for thread-scoped sessions
+
+	// StreamWriter 可选的流式输出写入器。
+	// 由 Channel 在创建消息时注入，GatewayLoop 检测到非 nil 时启用流式输出。
+	StreamWriter StreamWriter
 }
 
 func (m InboundMessage) SessionKey() string {
@@ -72,4 +76,16 @@ type OutboundMessage struct {
 	ReplyTo   string
 	Metadata  map[string]any
 	CreatedAt time.Time
+
+	// Streamed 标记此消息是否已经流式输出过内容。
+	// 为 true 时，Channel.Send() 只需打印换行和提示符，不需要再打印 Content。
+	Streamed bool
+}
+
+// StreamWriter 定义流式输出写入能力
+//
+// - ConsoleChannel 可以直接实现它
+// - TelegramChannel 可能需要不同的实现（分块发送、Markdown 解析等）
+type StreamWriter interface {
+	WriteDelta(delta string) error
 }

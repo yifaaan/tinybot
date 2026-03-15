@@ -35,6 +35,16 @@ func NewLoop(processor transport.MessageProcessor, bus transport.MessageBus) *Lo
 	}
 }
 
+// streamingProcessor 检测 processor 是否支持流式
+type streamingProcessor interface {
+	ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(string)) (model.OutboundMessage, error)
+}
+
+// streamWriterChannel 检测 channel 是否支持流式写入
+type streamWriterChannel interface {
+	WriteDelta(delta string) error
+}
+
 // Run starts the gateway loop until the context is canceled or the bus closes.
 func (l *Loop) Run(ctx context.Context) error {
 	for {
@@ -46,7 +56,23 @@ func (l *Loop) Run(ctx context.Context) error {
 			return fmt.Errorf("gateway loop consume inbound: %w", err)
 		}
 
-		out, err := l.processor.ProcessMessage(ctx, msg)
+		var out model.OutboundMessage
+		if sp, ok := l.processor.(streamingProcessor); ok && msg.StreamWriter != nil {
+			writer := msg.StreamWriter
+			var streamed bool
+			out, err = sp.ProcessMessageStream(ctx, msg, func(delta string) {
+				streamed = true
+				writer.WriteDelta(delta)
+				// 每个 delta 后立即 flush，确保终端实时显示
+				if flusher, ok := writer.(interface{ Flush() error }); ok {
+					flusher.Flush()
+				}
+			})
+			out.Streamed = streamed // 只有真正有流式输出时才标记
+		} else {
+			out, err = l.processor.ProcessMessage(ctx, msg)
+		}
+
 		if err != nil {
 			fallback := model.OutboundMessage{
 				Channel: msg.Channel,
@@ -62,7 +88,6 @@ func (l *Loop) Run(ctx context.Context) error {
 			}
 			continue
 		}
-
 		if strings.TrimSpace(out.Content) == "" {
 			continue
 		}
