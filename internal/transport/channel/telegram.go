@@ -8,6 +8,7 @@ import (
 	"time"
 	"tinybot/internal/domain/model"
 	"tinybot/internal/transport"
+	"tinybot/internal/utils/logger"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -51,6 +52,8 @@ func (c *TelegramChannel) Name() model.Channel {
 // 使用 tgbotapi.UpdateConfig 配置 long polling 参数
 // 循环获取更新，将每个消息转换为 InboundMessage 并发布到 bus
 func (c *TelegramChannel) Start(ctx context.Context) error {
+	logger.Info("telegram channel started")
+
 	ucfg := tgbotapi.NewUpdate(0)
 	ucfg.Timeout = 60
 
@@ -59,11 +62,13 @@ func (c *TelegramChannel) Start(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			logger.Info("telegram channel stopped")
 			return nil
 		case update, ok := <-updates:
 			if !ok {
 				continue
 			}
+			logger.Debug("received update", "message_id", update.Message.MessageID)
 			c.handleUpdate(ctx, update)
 		}
 	}
@@ -89,6 +94,8 @@ func (c *TelegramChannel) handleUpdate(ctx context.Context, update tgbotapi.Upda
 }
 
 func (c *TelegramChannel) Send(ctx context.Context, out model.OutboundMessage) error {
+	logger.Debug("sending message", "chat_id", out.ChatID, "content_len", len(out.Content))
+
 	chatID, err := strconv.ParseInt(out.ChatID, 10, 64)
 	if err != nil {
 		return fmt.Errorf("telegram: parse chat_id: %w", err)

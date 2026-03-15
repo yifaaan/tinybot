@@ -49,6 +49,7 @@ func NewQwenProvider(apiKey string, apiBase string, model string) (*QwenProvider
 		model = defaultQwenModel
 	}
 	client := openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(apiBase))
+
 	return &QwenProvider{
 		client: &client,
 		model:  model,

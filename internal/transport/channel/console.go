@@ -194,9 +194,6 @@ func (c *ConsoleChannel) WriteDelta(delta string) error {
 	c.outMu.Lock()
 	defer c.outMu.Unlock()
 
-	// 演示用：模拟逐字效果（生产环境可移除此延迟）
-	time.Sleep(30 * time.Millisecond)
-
 	_, err := fmt.Fprint(c.output, delta)
 	return err
 }

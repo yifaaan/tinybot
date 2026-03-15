@@ -11,7 +11,7 @@ const (
 	// For this rewrite phase, a project-local workspace is easier to inspect and reason about
 	// than a hidden directory in the user's home folder. The important part is not the exact
 	// location, but that every caller uses the same default.
-	defaultWorkspaceRootDir = ".tinybot"
+	defaultWorkspaceRootDir = "./.tinybot"
 	defaultWorkspaceDirName = "workspace"
 )
 
