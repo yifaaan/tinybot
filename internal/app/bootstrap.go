@@ -14,6 +14,11 @@ import (
 	"github.com/joho/godotenv"
 )
 
+var (
+	loadDotEnv = godotenv.Load
+	initLogger = logger.Init
+)
+
 type App struct {
 	ChatService *chatservice.Service
 	SessionRepo chatservice.SessionRepository
@@ -24,7 +29,7 @@ type App struct {
 func NewApp(workspace string) (*App, error) {
 	workspace = ResolveWorkspacePath(workspace)
 
-	if err := godotenv.Load(); err != nil {
+	if err := loadDotEnv(); err != nil {
 		return nil, err
 	}
 
@@ -34,7 +39,7 @@ func NewApp(workspace string) (*App, error) {
 		return nil, err
 	}
 
-	if err := logger.Init(cfg.Log); err != nil {
+	if err := initLogger(cfg.Log); err != nil {
 		return nil, fmt.Errorf("initialize logger: %w", err)
 	}
 	logger.Info("tinybot starting", "workspace", workspace, "provider", cfg.Providers.Active)

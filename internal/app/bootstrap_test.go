@@ -6,29 +6,24 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"tinybot/internal/utils/logger"
 )
 
-func ensureLocalDotEnv(t *testing.T) {
+func stubBootstrapDeps(t *testing.T, loggerInit func(cfg logger.Config) error) {
 	t.Helper()
 
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd() error: %v", err)
-	}
+	oldLoadDotEnv := loadDotEnv
+	oldInitLogger := initLogger
 
-	envPath := filepath.Join(wd, ".env")
-	if _, err := os.Stat(envPath); err == nil {
-		return
-	} else if !os.IsNotExist(err) {
-		t.Fatalf("Stat(.env) error: %v", err)
+	loadDotEnv = func(filenames ...string) error {
+		return nil
 	}
-
-	if err := os.WriteFile(envPath, []byte(""), 0o644); err != nil {
-		t.Fatalf("WriteFile(.env) error: %v", err)
-	}
+	initLogger = loggerInit
 
 	t.Cleanup(func() {
-		_ = os.Remove(envPath)
+		loadDotEnv = oldLoadDotEnv
+		initLogger = oldInitLogger
 	})
 }
 
@@ -59,7 +54,7 @@ func TestBuildCoreToolRegistry_DefinitionsDoNotExposeMessageTool(t *testing.T) {
 }
 
 func TestNewApp_InvalidLogOutputReturnsInitializeLoggerError(t *testing.T) {
-	ensureLocalDotEnv(t)
+	stubBootstrapDeps(t, logger.Init)
 
 	workspace := t.TempDir()
 	configPath := filepath.Join(workspace, "config.json")
@@ -84,7 +79,11 @@ func TestNewApp_InvalidLogOutputReturnsInitializeLoggerError(t *testing.T) {
 }
 
 func TestNewApp_StdoutLogOutputInitializesSuccessfully(t *testing.T) {
-	ensureLocalDotEnv(t)
+	var gotLoggerCfg logger.Config
+	stubBootstrapDeps(t, func(cfg logger.Config) error {
+		gotLoggerCfg = cfg
+		return nil
+	})
 
 	workspace := t.TempDir()
 	configPath := filepath.Join(workspace, "config.json")
@@ -123,5 +122,8 @@ func TestNewApp_StdoutLogOutputInitializesSuccessfully(t *testing.T) {
 	}
 	if app.Config.Log.Output != "stdout" {
 		t.Fatalf("Log.Output = %q, want %q", app.Config.Log.Output, "stdout")
+	}
+	if gotLoggerCfg.Output != "stdout" {
+		t.Fatalf("logger init output = %q, want %q", gotLoggerCfg.Output, "stdout")
 	}
 }
