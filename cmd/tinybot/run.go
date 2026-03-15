@@ -120,11 +120,7 @@ func runDirectChat(args []string, out io.Writer, workspace string) error {
 	defer cancel()
 
 	// 类型断言：检查 processor 是否支持流式
-	type streamProcessor interface {
-		ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(string)) (model.OutboundMessage, error)
-	}
-
-	if sp, ok := processor.(streamProcessor); ok {
+	if sp, ok := processor.(directStreamProcessor); ok {
 		msg := model.InboundMessage{
 			ID:       fmt.Sprintf("direct-%d", time.Now().UnixNano()),
 			Channel:  model.ChannelCLI,

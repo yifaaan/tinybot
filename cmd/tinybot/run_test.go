@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"tinybot/internal/domain/model"
 )
 
 type fakeDirectChatProcessor struct {
@@ -26,6 +28,37 @@ func (f *fakeDirectChatProcessor) ProcessDirect(ctx context.Context, sessionKey 
 		return "", f.err
 	}
 	return f.reply, nil
+}
+
+type fakeDirectStreamingProcessor struct {
+	streamOut    model.OutboundMessage
+	streamErr    error
+	streamDeltas []string
+
+	directCalls int
+	streamCalls int
+	lastMsg     model.InboundMessage
+}
+
+func (f *fakeDirectStreamingProcessor) ProcessDirect(ctx context.Context, sessionKey string, content string) (string, error) {
+	// 这条测试期望 run() 命中流式分支；
+	// 如果这里被调用，说明 direct chat 错误地回退到了非流式路径。
+	f.directCalls++
+	return "", nil
+}
+
+func (f *fakeDirectStreamingProcessor) ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(string)) (model.OutboundMessage, error) {
+	f.streamCalls++
+	f.lastMsg = msg
+
+	// 逐个推送增量文本，模拟真实 CLI 直连 chat service 时的流式输出。
+	for _, delta := range f.streamDeltas {
+		if onDelta != nil {
+			onDelta(delta)
+		}
+	}
+
+	return f.streamOut, f.streamErr
 }
 
 func TestRun_NoArgs_PrintsHelp(t *testing.T) {
@@ -111,6 +144,57 @@ func TestRun_DirectChat_UsesChatService(t *testing.T) {
 	}
 	if processor.last.content != "ping" {
 		t.Fatalf("content = %q, want %q", processor.last.content, "ping")
+	}
+}
+
+func TestRun_DirectChat_UsesStreamingProcessor(t *testing.T) {
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	var out bytes.Buffer
+	processor := &fakeDirectStreamingProcessor{
+		streamDeltas: []string{"pon", "g"},
+		streamOut: model.OutboundMessage{
+			Channel: model.ChannelCLI,
+			ChatID:  "direct",
+			Content: "pong",
+		},
+	}
+
+	oldFactory := newDirectChatProcessor
+	newDirectChatProcessor = func(workspace string) (directChatProcessor, error) {
+		return processor, nil
+	}
+	defer func() {
+		newDirectChatProcessor = oldFactory
+	}()
+
+	if err := run([]string{"ping"}, &out, workspace); err != nil {
+		t.Fatalf("run(direct streaming chat) error: %v", err)
+	}
+
+	// 终端应该只看到流式 delta 拼接后的结果，
+	// run() 在流结束后只补一个换行，不应该再把完整答案打印第二次。
+	if out.String() != "pong\n" {
+		t.Fatalf("direct streaming output = %q, want %q", out.String(), "pong\n")
+	}
+
+	if processor.directCalls != 0 {
+		t.Fatalf("directCalls = %d, want %d", processor.directCalls, 0)
+	}
+	if processor.streamCalls != 1 {
+		t.Fatalf("streamCalls = %d, want %d", processor.streamCalls, 1)
+	}
+
+	if processor.lastMsg.Channel != model.ChannelCLI {
+		t.Fatalf("channel = %q, want %q", processor.lastMsg.Channel, model.ChannelCLI)
+	}
+	if processor.lastMsg.ChatID != "direct" {
+		t.Fatalf("chatID = %q, want %q", processor.lastMsg.ChatID, "direct")
+	}
+	if processor.lastMsg.Content != "ping" {
+		t.Fatalf("content = %q, want %q", processor.lastMsg.Content, "ping")
+	}
+	if got := processor.lastMsg.SessionKey(); got != "cli:direct" {
+		t.Fatalf("sessionKey = %q, want %q", got, "cli:direct")
 	}
 }
 

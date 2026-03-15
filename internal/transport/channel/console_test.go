@@ -97,3 +97,45 @@ func TestConsoleChannel_Send_IgnoresEmptyMessages(t *testing.T) {
 		t.Fatalf("expected no output, got %q", output.String())
 	}
 }
+
+func TestConsoleChannel_Send_StreamedMessageWritesPromptOnly(t *testing.T) {
+	t.Parallel()
+
+	b := transportbus.NewMemoryBus(1)
+	var output bytes.Buffer
+	channel := NewConsoleChannel(b, ConsoleChannelConfig{
+		Prompt:     "You>",
+		ShowPrefix: true,
+	}, strings.NewReader(""), &output)
+
+	// 先模拟 gateway 在流式过程中已经把增量文本写到了终端。
+	if err := channel.WriteDelta("streamed "); err != nil {
+		t.Fatalf("WriteDelta() error: %v", err)
+	}
+	if err := channel.WriteDelta("final answer"); err != nil {
+		t.Fatalf("WriteDelta() error: %v", err)
+	}
+
+	// 流式结束后，Send 应该只补换行和提示符，
+	// 而不是再次把完整内容打印一遍。
+	err := channel.Send(context.Background(), model.OutboundMessage{
+		Channel:  model.ChannelCLI,
+		ChatID:   "gateway",
+		Content:  "streamed final answer",
+		Streamed: true,
+	})
+	if err != nil {
+		t.Fatalf("Send() error: %v", err)
+	}
+
+	text := output.String()
+	if strings.Count(text, "streamed final answer") != 1 {
+		t.Fatalf("expected streamed content to appear once, got %q", text)
+	}
+	if strings.Contains(text, "tinybot> streamed final answer") {
+		t.Fatalf("streamed reply should not be rendered again with prefix: %q", text)
+	}
+	if !strings.HasSuffix(text, "\nYou>") {
+		t.Fatalf("output missing trailing newline and prompt: %q", text)
+	}
+}
