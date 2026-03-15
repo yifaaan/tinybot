@@ -158,6 +158,18 @@ func DefaultConfig() *Config {
 					ApiBase: "https://api.openai.com/v1",
 					Model:   "gpt-4o-mini",
 				},
+				"ollama": {
+					Kind:    "ollama",
+					ApiKey:  "", // Ollama 不需要 API Key
+					ApiBase: "http://localhost:11434/v1",
+					Model:   "llama3.2",
+				},
+				"deepseek": {
+					Kind:    "deepseek",
+					ApiKey:  "",
+					ApiBase: "https://api.deepseek.com",
+					Model:   "deepseek-chat",
+				},
 			},
 		},
 		Tools: ToolsConfig{

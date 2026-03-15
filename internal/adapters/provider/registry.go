@@ -44,16 +44,18 @@ func (r *Registry) Create(kind, apiKey, apiBase, model string) (chat.CompletionC
 
 func DefaultRegistry() *Registry {
 	r := NewRegistry()
-	openAIFactory := func(apiKey, apiBase, model string) (chat.CompletionClient, error) {
-		return NewQwenProvider(apiKey, apiBase, model)
-		// TODO: rename to OpenAICompatProvider
-	}
 
 	r.Register("openai", func(apiKey, apiBase, model string) (chat.CompletionClient, error) {
 		return NewOpenAIProvider(apiKey, apiBase, model)
 	})
-	r.Register("qwen", openAIFactory)
-	r.Register("ollama", openAIFactory)
-	r.Register("deepseek", openAIFactory)
+	r.Register("qwen", func(apiKey, apiBase, model string) (chat.CompletionClient, error) {
+		return NewQwenProvider(apiKey, apiBase, model)
+	})
+	r.Register("ollama", func(apiKey, apiBase, model string) (chat.CompletionClient, error) {
+		return NewOllamaProvider(apiKey, apiBase, model)
+	})
+	r.Register("deepseek", func(apiKey, apiBase, model string) (chat.CompletionClient, error) {
+		return NewDeepseekProvider(apiKey, apiBase, model)
+	})
 	return r
 }
