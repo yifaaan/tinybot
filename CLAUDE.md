@@ -78,11 +78,27 @@ internal/
     workspace/         # Bootstrap reader, memory store, skills loader
 ```
 
+### Key Dependencies
+
+- `github.com/openai/openai-go` — LLM provider SDK (OpenAI-compatible API calls)
+- `github.com/robfig/cron/v3` — Cron expression parsing and validation
+- `github.com/go-shiori/go-readability` — Web content extraction for web_fetch tool
+- `github.com/joho/godotenv` — .env file loading
+
+### Composition Root (internal/app/)
+
+All dependency wiring happens in `bootstrap.go` via `NewApp()` and `NewGatewayApp()`:
+
+1. `NewApp()` — creates the core chat pipeline: config → provider → tool registry → session repo → consolidator → prompt builder → chat service
+2. `NewGatewayApp()` — extends `NewApp()` with transport: message bus → gateway loop → channel manager → cron runner → heartbeat runner
+
+The `run()` function in `cmd/tinybot/run.go` is separated from `main()` for testability — tests inject factory functions (e.g., `newDirectChatProcessor`) to stub out dependencies.
+
 ### Core Service Contracts (internal/service/chat/contracts.go)
 
 - **SessionRepository**: `GetOrCreateSession`, `SaveSession`
 - **CompletionClient**: `Chat(ctx, messages, tools, maxTokens, temperature)`
-- **ToolExecutor**: `GetDefinitions`, `Execute(ctx, name, params)`
+- **ToolExecutor**: `GetDefinitions`, `Execute(ctx, name, params)` + `SetMessageContext(channel, chatID)` for tool context propagation
 - **PromptBuilder**: `BuildMessages`, `AddAssistantMessage`, `AddToolResult`
 
 ### Chat Service Turn Flow (internal/service/chat/service.go)
@@ -90,23 +106,55 @@ internal/
 1. Load or create session
 2. Build prompt from history + current message + workspace context
 3. Call LLM
-4. If tool calls: execute tools, append results, repeat from step 3
+4. If tool calls: execute tools, append results, repeat from step 3 (up to `max_tool_iterations`)
 5. Save session trace
 6. Return reply
 
-### Transport Contracts (internal/transport/contracts.go)
+Before the tool loop, the service calls `SetMessageContext(channel, chatID)` on the tool executor so the `message` tool knows which channel to target.
 
+### Transport and Gateway Concurrency
+
+**Contracts** (internal/transport/contracts.go):
 - **MessageBus**: In-process pub/sub for inbound/outbound messages
 - **MessageProcessor**: Single-message handler (bridges gateway to chat service)
 - **Channel**: External chat transport (console, telegram, etc.)
 
-### Tool Registry (internal/adapters/tool/registry.go)
+**Goroutine model in gateway mode** — all coordinated by context cancellation:
+- Gateway loop: blocks on bus, calls chat service, publishes reply
+- Each channel: blocks on its input source (stdin, Telegram API, etc.)
+- Cron runner: blocks on ticker, evaluates due jobs
+- Heartbeat runner: blocks on ticker, evaluates HEARTBEAT.md
+
+### Tool Registry (internal/adapters/tool/)
 
 Tools implement the `Tool` interface:
 - `Spec() ToolSpec` — returns OpenAI-compatible function schema
 - `Execute(ctx, params) (string, error)` — executes the tool
 
 Built-in tools: `exec`, `read_file`, `write_file`, `edit_file`, `list_dir`, `web_search`, `web_fetch`, `message`
+
+### Cron Job Scheduling (internal/domain/model/cron.go)
+
+Three schedule kinds:
+- **Every** — repeats every N seconds
+- **At** — one-time execution at RFC3339 timestamp
+- **Cron** — standard cron expression (validated with robfig/cron/v3)
+
+Jobs support optional **delivery targets** (channel + chatID) to dispatch execution results to specific channels via `ResultDispatcher`.
+
+### Session Persistence (internal/repository/sessionrepo/)
+
+JSONL format with a non-obvious convention: **the first line is session metadata** (key, timestamps, LastConsolidated), subsequent lines are messages (one per line).
+
+```
+{"key":"cli:direct","created_at":"...","updated_at":"...","last_consolidated":0}
+{"role":"user","content":"Hello","created_at":"..."}
+{"role":"assistant","content":"Hi!","created_at":"..."}
+```
+
+### Session Consolidation (internal/service/chat/consolidation.go)
+
+When conversation history exceeds `token_limit`, old messages are summarized by the LLM into a single system message. `Session.LastConsolidated` tracks the cutoff index. `GetHistory()` returns only unconsolidated messages. The `keep_recent` config preserves the N most recent messages uncompressed.
 
 ## Configuration
 
@@ -142,27 +190,6 @@ Built-in tools: `exec`, `read_file`, `write_file`, `edit_file`, `list_dir`, `web
 }
 ```
 
-## Workspace Structure
-
-```
-.tinybot/workspace/
-  config.json          # Configuration file
-  AGENTS.md            # Agent behavior instructions
-  SOUL.md              # Agent identity/role
-  USER.md              # User profile
-  TOOLS.md             # Tool usage guidelines
-  HEARTBEAT.md         # Periodic task instructions
-  memory/
-    MEMORY.md          # Long-term memory
-    YYYY-MM-DD.md      # Daily notes
-  skills/
-    {name}/SKILL.md    # Skill definitions with YAML front matter
-  sessions/
-    {channel}_{chatID}.jsonl  # Session traces
-  cron/
-    jobs.json          # Cron job definitions
-```
-
 ## Prompt Assembly Order (internal/service/chat/prompt_builder.go)
 
 1. Identity template (hardcoded tinybot identity with current time and workspace path)
@@ -173,10 +200,10 @@ Built-in tools: `exec`, `read_file`, `write_file`, `edit_file`, `list_dir`, `web
 
 ## Testing Patterns
 
-- Table-driven tests are used extensively
-- Fake/stub implementations for all service-layer interfaces
-- Use `t.TempDir()` for all file-system tests
+- Table-driven tests with fake/stub implementations for all service-layer interfaces
+- `t.TempDir()` for all file-system tests
 - Tests verify context propagation through repository methods
+- CLI tests use injectable factory functions to stub out the chat pipeline
 
 ## Session Key Convention
 

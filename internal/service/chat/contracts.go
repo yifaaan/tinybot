@@ -4,9 +4,6 @@
 // - session 最终落成 JSONL、数据库还是其他格式
 // - provider 背后接的是哪家模型服务
 // - workspace 文件到底如何读取和组织
-//
-// 这样分层的原因是：agent turn 是整个 tinybot 最稳定、最值得优先保护的行为核心。
-// 只要这一层边界清晰，CLI、gateway、cron、heartbeat 都可以复用同一套业务逻辑。
 package chat
 
 import (
@@ -132,4 +129,17 @@ type PromptBuilder interface {
 	// 返回：
 	// - []map[string]any: 追加后的消息列表
 	AddToolResult(messages []map[string]any, toolCallID string, toolName string, result string) []map[string]any
+}
+
+// StreamingCompletionClient 在 CompletionClient 基础上增加流式调用能力
+type StreamingCompletionClient interface {
+	// ChatStream 发起流式对话请求，通过 channel 逐步返回事件
+	//
+	// 返回的 channel：
+	// - 会持续推送 StreamEventDelta（文本片段）
+	// - 最终推送一个 StreamEventDone（包含完整 LLMResponse）或 StreamEventError
+	// - 推送完毕后 channel 会被关闭
+	//
+	// ctx 取消时，provider 应停止读取并关闭 channel。
+	ChatStream(ctx context.Context, messages []map[string]any, tools []map[string]any, maxTokens int, temperature float32) <-chan model.StreamEvent
 }

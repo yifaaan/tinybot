@@ -129,6 +129,135 @@ func (q *QwenProvider) Chat(ctx context.Context, messages []map[string]any, tool
 	return out, nil
 }
 
+// ChatStream 发起流式对话请求
+//
+// 1. 复用已有的 convertMessages/convertTools 构造 params
+// 2. 调用 openai-go 的 NewStreaming 拿到 stream 对象
+// 3. 启动 goroutine 消费 stream，逐个推送到 channel
+// 4. 在 goroutine 中累积 tool call 的 name/arguments 片段
+// 5. 流结束时拼装完整 LLMResponse 作为 Done 事件
+func (q *QwenProvider) ChatStream(ctx context.Context, messages []map[string]any, tools []map[string]any, maxTokens int, temperature float32) <-chan model.StreamEvent {
+	ch := make(chan model.StreamEvent)
+
+	go func() {
+		defer close(ch)
+
+		// 1. 构造请求参数
+		convertedMessages, err := convertMessages(messages)
+		if err != nil {
+			ch <- model.StreamEvent{Kind: model.StreamEventError, Err: err}
+			return
+		}
+
+		params := openai.ChatCompletionNewParams{
+			Model:    q.model,
+			Messages: convertedMessages,
+		}
+		if maxTokens > 0 {
+			params.MaxTokens = openai.Int(int64(maxTokens))
+		}
+		if temperature >= 0 {
+			params.Temperature = openai.Float(float64(temperature))
+		}
+		// TODO: 每次调用都会传入所有工具的定义，需要优化
+		if len(tools) > 0 {
+			convertedTools, err := convertTools(tools)
+			if err != nil {
+				ch <- model.StreamEvent{Kind: model.StreamEventError, Err: err}
+				return
+			}
+			params.Tools = convertedTools
+		}
+
+		// 2. 发起流式请求
+		stream := q.client.Chat.Completions.NewStreaming(ctx, params)
+
+		// 累积模型输出的文本内容
+		var contentBuilder strings.Builder
+		// 累积工具调用信息的结构，key 是 index,value 是 name 和 arguments 的片段
+		type toolCallAccum struct {
+			ID   string
+			Name string
+			Args strings.Builder
+		}
+		accum := make(map[int]*toolCallAccum) // key: index 这个 tool call 在“本轮 assistant 输出的 tool_calls 数组里排第几个”
+		var finishReason string
+
+		// 3. 迭代获取 chunk - 所有 chunk 都属于这同一个请求
+		for stream.Next() {
+			chunk := stream.Current()
+			if len(chunk.Choices) == 0 {
+				continue
+			}
+			choice := chunk.Choices[0]
+			finishReason = choice.FinishReason
+
+			// 累积文本内容
+			if choice.Delta.Content != "" {
+				contentBuilder.WriteString(choice.Delta.Content)
+				// 将增量文本推送给消费者chan
+				ch <- model.StreamEvent{
+					Kind:  model.StreamEventDelta,
+					Delta: choice.Delta.Content,
+				}
+			}
+
+			// 累积工具调用信息,不立即推送到chan，
+			for _, tc := range choice.Delta.ToolCalls {
+				idx := int(tc.Index)
+				if _, ok := accum[idx]; !ok {
+					accum[idx] = &toolCallAccum{ID: tc.ID}
+				}
+				a := accum[idx]
+				// TODO:ID?
+				if tc.Function.Name != "" {
+					a.Name += tc.Function.Name
+				}
+				if tc.Function.Arguments != "" {
+					a.Args.WriteString(tc.Function.Arguments)
+				}
+			}
+		}
+
+		// 4.错误
+		if err := stream.Err(); err != nil {
+			ch <- model.StreamEvent{Kind: model.StreamEventError, Err: err}
+			return
+		}
+
+		// 拼接完整LLMResponse
+		resp := model.LLMResponse{
+			Content:      strings.TrimSpace(contentBuilder.String()),
+			FinishReason: finishReason,
+		}
+
+		// 将累积的工具调用信息转换成 model.ToolCall 列表
+		if len(accum) > 0 {
+			resp.ToolCalls = make([]*model.ToolCall, 0, len(accum))
+			for _, a := range accum {
+				args := make(map[string]any)
+				raw := strings.TrimSpace(a.Args.String())
+				if raw != "" {
+					if err := json.Unmarshal([]byte(raw), &args); err != nil {
+						args = map[string]any{"raw": raw}
+					}
+				}
+				resp.ToolCalls = append(resp.ToolCalls, &model.ToolCall{
+					ID:   a.ID,
+					Name: a.Name,
+					Args: args,
+				})
+			}
+		}
+
+		// 5. 流结束，推送 Done 事件和完整响应
+		ch <- model.StreamEvent{Kind: model.StreamEventDone, Response: &resp}
+
+	}()
+
+	return ch
+}
+
 func convertMessages(messages []map[string]any) ([]openai.ChatCompletionMessageParamUnion, error) {
 	converted := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
 

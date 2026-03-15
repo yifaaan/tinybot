@@ -292,6 +292,219 @@ func (s *Service) ProcessDirect(ctx context.Context, sessionKey string, content 
 	return content, nil
 }
 
+// ProcessMessageStream 与 ProcessMessage 功能相同，但最终回答通过 onDelta 逐步推送。
+//
+// onDelta 会在每收到一个文本增量时被调用。
+// 完整的回复仍然会写入 session trace，保证持久化不受影响。
+//
+// 为什么 tool loop 中间不推流：
+// - 用户不关心工具执行过程中的"思考文本"
+// - tool call 的结果需要重新送回模型，中间输出没有意义
+// - 只在最后一轮（模型不再请求工具）推流
+func (s *Service) ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(delta string)) (model.OutboundMessage, error) {
+	if strings.TrimSpace(msg.Content) == "" {
+		return model.OutboundMessage{}, errors.New("chat service: message content is empty")
+	}
+
+	session, err := s.sessions.GetOrCreateSession(ctx, msg.SessionKey())
+	if err != nil {
+		return model.OutboundMessage{}, fmt.Errorf("chat service get or create session: %w", err)
+	}
+	if session == nil {
+		return model.OutboundMessage{}, errors.New("chat service: failed to get or create session")
+	}
+
+	if s.consolidator != nil && s.consolidator.NeedsConsolidation(session) {
+		if err := s.consolidator.Consolidate(ctx, session); err != nil {
+			// TODO:log
+		}
+	}
+	// 每轮进入tool loop前，帮inbound的channel/chatid 传给message tool
+	if setter, ok := s.tools.(messageContextSetter); ok {
+		setter.SetMessageContext(msg.Channel, msg.ChatID)
+	}
+	// Explicit per-turn skill selection should flow through the request boundary.
+	llmMessages := s.prompts.BuildMessages(session.GetHistory(500), msg.Content, msg.SelectedSkills)
+	trace := []traceMessage{{
+		role:    model.RoleUser,
+		content: msg.Content,
+	}}
+
+	// 检查llm是否支持流式输出，如果支持则调用 ChatStream，否则退回到 ProcessMessage 的非流式实现
+	streamer, canStream := s.llm.(StreamingCompletionClient)
+	var answer string
+	for iteration := 0; iteration < s.maxIterations; iteration++ {
+		// 如果是最后一轮（或不确定），用流式；如果有 tool calls，下一轮再说
+		// 但我们无法提前知道模型会不会请求工具，所以策略是：
+		// 先用流式调用 → 如果 Done 事件有 tool calls → 按非流式逻辑处理 tool loop
+		// 如果 Done 事件没有 tool calls → delta 已经被推送了，直接结束
+		if canStream {
+			var resp *model.LLMResponse
+			var contentBuilder strings.Builder
+
+			// ChatStream 返回的 chan 会持续推送增量事件，直到模型输出完成或出错。
+			for event := range streamer.ChatStream(ctx, llmMessages, s.tools.GetDefinitions(), s.maxTokens, s.temperature) {
+				switch event.Kind {
+				case model.StreamEventDelta:
+					contentBuilder.WriteString(event.Delta)
+					// 需要增量推送时，才调用 onDelta
+					if onDelta != nil {
+						onDelta(event.Delta)
+					}
+				case model.StreamEventDone:
+					// 模型输出完成，拿到最终响应
+					resp = event.Response
+				case model.StreamEventError:
+					return model.OutboundMessage{}, fmt.Errorf("chat service stream: %w", event.Err)
+				}
+			}
+
+			if resp == nil {
+				return model.OutboundMessage{}, errors.New("chat service: stream ended without response")
+			}
+
+			if resp.HasToolCalls() {
+				toolCallMaps := make([]map[string]any, 0, len(resp.ToolCalls))
+				for _, tc := range resp.ToolCalls {
+					argJSON, _ := json.Marshal(tc.Args)
+					toolCallMaps = append(toolCallMaps, map[string]any{
+						"id":   tc.ID,
+						"type": "function",
+						"function": map[string]any{
+							"name":      tc.Name,
+							"arguments": string(argJSON),
+						},
+					})
+				}
+
+				llmMessages = s.prompts.AddAssistantMessage(llmMessages, resp.Content, toolCallMaps)
+				trace = append(trace, traceMessage{
+					role:    model.RoleAssistant,
+					content: strings.TrimSpace(resp.Content),
+					attrs: map[string]any{
+						"tool_calls": toolCallMaps,
+					},
+				})
+
+				for _, tc := range resp.ToolCalls {
+					result, err := s.tools.Execute(ctx, tc.Name, tc.Args)
+					if err != nil {
+						result = fmt.Sprintf("Error: %s", err.Error())
+					}
+
+					// assistant 的 tool-call trace 与 tool result trace 必须成对出现，tool loop 才完整。
+					llmMessages = s.prompts.AddToolResult(llmMessages, tc.ID, tc.Name, result)
+					trace = append(trace, traceMessage{
+						role:    model.RoleTool,
+						content: result,
+						attrs: map[string]any{
+							"tool_call_id": tc.ID,
+							"name":         tc.Name,
+						},
+					})
+				}
+
+				continue
+			}
+
+			answer = strings.TrimSpace(resp.Content)
+			break
+		} else {
+			// 不支持流式，退回到原来的非流式实现
+			resp, err := s.llm.Chat(ctx, llmMessages, s.tools.GetDefinitions(), s.maxTokens, s.temperature)
+			if err != nil {
+				return model.OutboundMessage{}, fmt.Errorf("chat service llm chat: %w", err)
+			}
+
+			if resp.HasToolCalls() {
+				toolCallMaps := make([]map[string]any, 0, len(resp.ToolCalls))
+				for _, tc := range resp.ToolCalls {
+					// 这里把内部 ToolCall 重新编码成 provider 常见的 tool-call message 形状，
+					// 目的是让下一轮模型调用能够“看见自己刚才请求了什么工具”。
+					//
+					// 如果缺少这一步，模型下一轮只会收到 tool result，却不知道这个结果是怎么来的。
+					argJSON, _ := json.Marshal(tc.Args)
+					toolCallMaps = append(toolCallMaps, map[string]any{
+						"id":   tc.ID,
+						"type": "function",
+						"function": map[string]any{
+							"name":      tc.Name,
+							"arguments": string(argJSON),
+						},
+					})
+				}
+
+				// 先把 assistant 的 tool-call 痕迹写回消息列表，再执行真实工具。
+				// 这样 transcript 的顺序和真实推理过程保持一致，也更容易调试。
+				llmMessages = s.prompts.AddAssistantMessage(llmMessages, resp.Content, toolCallMaps)
+				trace = append(trace, traceMessage{
+					role:    model.RoleAssistant,
+					content: strings.TrimSpace(resp.Content),
+					attrs: map[string]any{
+						"tool_calls": toolCallMaps,
+					},
+				})
+
+				for _, tc := range resp.ToolCalls {
+					result, err := s.tools.Execute(ctx, tc.Name, tc.Args)
+					if err != nil {
+						// 这里故意不因为单个工具失败而直接终止整轮 turn。
+						// 原因是模型经常可以根据错误文本决定是否重试、换参数，
+						// 或者直接解释失败；这比让整轮对话直接崩掉更有恢复力。
+						result = fmt.Sprintf("Error: %s", err.Error())
+					}
+
+					// 把工具结果继续追加回 transcript，供下一轮模型消费。
+					// assistant 的 tool-call trace 与 tool result trace 必须成对出现，tool loop 才完整。
+					llmMessages = s.prompts.AddToolResult(llmMessages, tc.ID, tc.Name, result)
+					trace = append(trace, traceMessage{
+						role:    model.RoleTool,
+						content: result,
+						attrs: map[string]any{
+							"tool_call_id": tc.ID,
+							"name":         tc.Name,
+						},
+					})
+				}
+
+				continue
+			}
+
+			// 一旦模型不再请求工具，就把当前内容视为本轮最终回答。
+			// TrimSpace 是为了避免 provider 返回纯空白时被误判成有效输出。
+			answer = strings.TrimSpace(resp.Content)
+			break
+		}
+	}
+	// 如果多轮之后依然没有产出最终回答，先给一个稳定兜底文案，
+	// 避免 direct chat 最后返回空字符串。
+	if answer == "" {
+		answer = "Sorry, I encountered an error calling the AI model."
+	}
+
+	trace = append(trace, traceMessage{
+		role:    model.RoleAssistant,
+		content: answer,
+	})
+
+	for _, item := range trace {
+		session.AddMessage(item.role, item.content, item.attrs)
+	}
+
+	if err := s.sessions.SaveSession(ctx, session); err != nil {
+		return model.OutboundMessage{}, fmt.Errorf("chat service save session: %w", err)
+	}
+
+	return model.OutboundMessage{
+		Channel:   msg.Channel,
+		ChatID:    msg.ChatID,
+		Content:   answer,
+		ReplyTo:   msg.ID,
+		Metadata:  map[string]any{"session_key": session.Key},
+		CreatedAt: time.Now(),
+	}, nil
+}
+
 // toLLMMessages 把持久化层的 Message 结构转换成 provider 可消费的消息形状。
 //
 // 为什么需要这一层转换：

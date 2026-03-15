@@ -115,6 +115,35 @@ func runDirectChat(args []string, out io.Writer, workspace string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
+	// 类型断言：检查 processor 是否支持流式
+	type streamProcessor interface {
+		ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(string)) (model.OutboundMessage, error)
+	}
+
+	if sp, ok := processor.(streamProcessor); ok {
+		msg := model.InboundMessage{
+			ID:       fmt.Sprintf("direct-%d", time.Now().UnixNano()),
+			Channel:  model.ChannelCLI,
+			SenderID: "user",
+			ChatID:   "direct",
+			Content:  input,
+			SessionKeyOverride: func() *string {
+				s := "cli:direct"
+				return &s
+			}(),
+		}
+		_, err := sp.ProcessMessageStream(ctx, msg, func(delta string) {
+			fmt.Fprint(out, delta) // 每收到一个增量就立即输出，保持流式体验
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(out) // 流结束后补一个换行
+		return nil
+	}
+
+	// 回退到非流式
+
 	reply, err := processor.ProcessDirect(ctx, "cli:direct", input)
 	if err != nil {
 		return fmt.Errorf("failed to process direct message: %w", err)
