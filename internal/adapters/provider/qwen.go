@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"tinybot/internal/domain/model"
+	"tinybot/internal/utils/logger"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -67,6 +68,8 @@ func NewQwenProvider(apiKey string, apiBase string, model string) (*QwenProvider
 //
 //	error
 func (q *QwenProvider) Chat(ctx context.Context, messages []map[string]any, tools []map[string]any, maxTokens int, temperature float32) (model.LLMResponse, error) {
+	logger.Debug("llm chat request", "model", q.model, "messages", len(messages), "tools", len(tools))
+
 	convertedMessages, err := convertMessages(messages)
 	if err != nil {
 		return model.LLMResponse{}, fmt.Errorf("qwen provider convert messages: %w", err)

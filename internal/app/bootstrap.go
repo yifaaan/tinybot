@@ -9,6 +9,7 @@ import (
 	workspaceadapter "tinybot/internal/adapters/workspace"
 	"tinybot/internal/repository/sessionrepo"
 	chatservice "tinybot/internal/service/chat"
+	"tinybot/internal/utils/logger"
 
 	"github.com/joho/godotenv"
 )
@@ -32,6 +33,11 @@ func NewApp(workspace string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if err := logger.Init(cfg.Log); err != nil {
+		return nil, fmt.Errorf("initialize logger: %w", err)
+	}
+	logger.Info("tinybot starting", "workspace", workspace, "provider", cfg.Providers.Active)
 
 	sessionRepo := sessionrepo.NewFileSessionRepository(workspace)
 	llm, err := newLLMClientFromConfig(cfg)

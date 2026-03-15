@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"tinybot/internal/utils"
+	"tinybot/internal/utils/logger"
 )
 
 type Config struct {
@@ -14,6 +15,7 @@ type Config struct {
 	Providers ProvidersConfig `json:"providers"`
 	Tools     ToolsConfig     `json:"tools,omitempty"`
 	Heartbeat HeartbeatConfig `json:"heartbeat,omitempty"`
+	Log       logger.Config   `json:"log,omitempty"`
 }
 
 type AgentsConfig struct {
@@ -100,6 +102,7 @@ type HeartbeatConfig struct {
 	IntervalSeconds int  `json:"interval_seconds"`
 }
 
+
 type ToolsConfig struct {
 	// TODO: support multiple tools
 	WebSearch WebSearchConfig `json:"web_search,omitempty"`
@@ -160,6 +163,11 @@ func DefaultConfig() *Config {
 		Heartbeat: HeartbeatConfig{
 			Enabled:         true,
 			IntervalSeconds: 60,
+		},
+		Log: logger.Config{
+			Level:  "info",
+			Format: "text",
+			Output: "stderr",
 		},
 	}
 }

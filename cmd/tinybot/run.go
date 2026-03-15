@@ -19,6 +19,10 @@ type directChatProcessor interface {
 	ProcessDirect(ctx context.Context, sessionKey string, content string) (string, error)
 }
 
+type directStreamProcessor interface {
+	ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(string)) (model.OutboundMessage, error)
+}
+
 var newDirectChatProcessor = func(workspace string) (directChatProcessor, error) {
 	appInstance, err := app.NewApp(workspace)
 	if err != nil {

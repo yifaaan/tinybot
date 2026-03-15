@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"tinybot/internal/domain/model"
+	"tinybot/internal/utils/logger"
 )
 
 type Registry struct {
@@ -52,11 +53,21 @@ func (r *Registry) GetDefinitions() []map[string]any {
 
 // Execute a tool by name with given parameters.
 func (r *Registry) Execute(ctx context.Context, name string, params map[string]any) (string, error) {
+	logger.Debug("tool execute start", "name", name, "params", params)
+
 	tool, ok := r.Get(name)
 	if !ok {
+		logger.Warn("tool not found", "name", name)
 		return "", fmt.Errorf("tool %s not found", name)
 	}
-	return tool.Execute(ctx, params)
+
+	result, err := tool.Execute(ctx, params)
+	if err != nil {
+		logger.Warn("tool execute failed", "name", name, "error", err)
+	} else {
+		logger.Debug("tool execute success", "name", name, "result_len", len(result))
+	}
+	return result, err
 }
 
 func (r *Registry) ToolNames() []string {

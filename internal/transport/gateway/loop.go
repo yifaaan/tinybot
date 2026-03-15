@@ -8,6 +8,7 @@ import (
 
 	"tinybot/internal/domain/model"
 	"tinybot/internal/transport"
+	"tinybot/internal/utils/logger"
 )
 
 // Loop bridges inbound transport messages to the chat service and republishes outbound replies.
@@ -47,14 +48,20 @@ type streamWriterChannel interface {
 
 // Run starts the gateway loop until the context is canceled or the bus closes.
 func (l *Loop) Run(ctx context.Context) error {
+	logger.Info("gateway loop started")
+	defer logger.Info("gateway loop stopped")
+
 	for {
 		msg, err := l.bus.ConsumeInbound(ctx)
 		if err != nil {
 			if errors.Is(err, transport.ErrBusClosed) || errors.Is(err, context.Canceled) {
 				return nil
 			}
+			logger.Error("consume inbound failed", "error", err)
 			return fmt.Errorf("gateway loop consume inbound: %w", err)
 		}
+
+		logger.Debug("processing message", "session", msg.SessionKey(), "channel", msg.Channel, "content_len", len(msg.Content))
 
 		var out model.OutboundMessage
 		if sp, ok := l.processor.(streamingProcessor); ok && msg.StreamWriter != nil {
@@ -69,11 +76,13 @@ func (l *Loop) Run(ctx context.Context) error {
 				}
 			})
 			out.Streamed = streamed // 只有真正有流式输出时才标记
+			logger.Debug("streaming completed", "session", msg.SessionKey(), "streamed", streamed)
 		} else {
 			out, err = l.processor.ProcessMessage(ctx, msg)
 		}
 
 		if err != nil {
+			logger.Error("process message failed", "session", msg.SessionKey(), "error", err)
 			fallback := model.OutboundMessage{
 				Channel: msg.Channel,
 				ChatID:  msg.ChatID,
@@ -84,11 +93,13 @@ func (l *Loop) Run(ctx context.Context) error {
 				if errors.Is(pubErr, transport.ErrBusClosed) || errors.Is(pubErr, context.Canceled) {
 					return nil
 				}
+				logger.Error("publish fallback failed", "error", pubErr)
 				return fmt.Errorf("gateway loop publish fallback: %w", pubErr)
 			}
 			continue
 		}
 		if strings.TrimSpace(out.Content) == "" {
+			logger.Debug("empty response, skipping", "session", msg.SessionKey())
 			continue
 		}
 
@@ -96,7 +107,9 @@ func (l *Loop) Run(ctx context.Context) error {
 			if errors.Is(err, transport.ErrBusClosed) || errors.Is(err, context.Canceled) {
 				return nil
 			}
+			logger.Error("publish outbound failed", "error", err)
 			return fmt.Errorf("gateway loop publish outbound: %w", err)
 		}
+		logger.Debug("message completed", "session", msg.SessionKey(), "response_len", len(out.Content))
 	}
 }

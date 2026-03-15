@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"tinybot/internal/domain/model"
+	"tinybot/internal/utils/logger"
 )
 
 const (
@@ -125,6 +126,8 @@ type traceMessage struct {
 // - 它们的核心行为完全相同，区别只在“消息从哪里来、结果发到哪里去”
 // - 如果分别维护两套 turn 逻辑，后续几乎一定会发生行为漂移
 func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) (model.OutboundMessage, error) {
+	logger.Debug("process message start", "session", msg.SessionKey(), "content_len", len(msg.Content))
+
 	if strings.TrimSpace(msg.Content) == "" {
 		return model.OutboundMessage{}, errors.New("chat service: message content is empty")
 	}
@@ -140,7 +143,7 @@ func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) 
 	// 压缩旧消息
 	if s.consolidator != nil && s.consolidator.NeedsConsolidation(session) {
 		if err := s.consolidator.Consolidate(ctx, session); err != nil {
-			// TODO:log
+			logger.Warn("session consolidation failed", "session", session.Key, "error", err)
 		}
 	}
 	// 每轮进入tool loop前，帮inbound的channel/chatid 传给message tool
@@ -156,12 +159,17 @@ func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) 
 
 	var answer string
 	for iteration := 0; iteration < s.maxIterations; iteration++ {
+		logger.Debug("llm chat iteration", "session", session.Key, "iteration", iteration+1)
+
 		resp, err := s.llm.Chat(ctx, llmMessages, s.tools.GetDefinitions(), s.maxTokens, s.temperature)
 		if err != nil {
+			logger.Error("llm chat failed", "session", session.Key, "error", err)
 			return model.OutboundMessage{}, fmt.Errorf("chat service llm chat: %w", err)
 		}
 
 		if resp.HasToolCalls() {
+			logger.Debug("tool calls received", "session", session.Key, "count", len(resp.ToolCalls))
+
 			toolCallMaps := make([]map[string]any, 0, len(resp.ToolCalls))
 			for _, tc := range resp.ToolCalls {
 				// 这里把内部 ToolCall 重新编码成 provider 常见的 tool-call message 形状，
@@ -191,11 +199,14 @@ func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) 
 			})
 
 			for _, tc := range resp.ToolCalls {
+				logger.Debug("executing tool", "session", session.Key, "tool", tc.Name)
+
 				result, err := s.tools.Execute(ctx, tc.Name, tc.Args)
 				if err != nil {
 					// 这里故意不因为单个工具失败而直接终止整轮 turn。
 					// 原因是模型经常可以根据错误文本决定是否重试、换参数，
 					// 或者直接解释失败；这比让整轮对话直接崩掉更有恢复力。
+					logger.Warn("tool execution failed", "session", session.Key, "tool", tc.Name, "error", err)
 					result = fmt.Sprintf("Error: %s", err.Error())
 				}
 
@@ -218,12 +229,14 @@ func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) 
 		// 一旦模型不再请求工具，就把当前内容视为本轮最终回答。
 		// TrimSpace 是为了避免 provider 返回纯空白时被误判成有效输出。
 		answer = strings.TrimSpace(resp.Content)
+		logger.Debug("got final answer", "session", session.Key, "answer_len", len(answer))
 		break
 	}
 
 	// 如果多轮之后依然没有产出最终回答，先给一个稳定兜底文案，
 	// 避免 direct chat 最后返回空字符串。
 	if answer == "" {
+		logger.Warn("empty answer after all iterations", "session", session.Key)
 		answer = "Sorry, I encountered an error calling the AI model."
 	}
 
@@ -237,8 +250,11 @@ func (s *Service) ProcessMessage(ctx context.Context, msg model.InboundMessage) 
 	}
 
 	if err := s.sessions.SaveSession(ctx, session); err != nil {
+		logger.Error("save session failed", "session", session.Key, "error", err)
 		return model.OutboundMessage{}, fmt.Errorf("chat service save session: %w", err)
 	}
+
+	logger.Info("message processed", "session", session.Key, "answer_len", len(answer))
 
 	return model.OutboundMessage{
 		Channel:   msg.Channel,
@@ -316,7 +332,7 @@ func (s *Service) ProcessMessageStream(ctx context.Context, msg model.InboundMes
 
 	if s.consolidator != nil && s.consolidator.NeedsConsolidation(session) {
 		if err := s.consolidator.Consolidate(ctx, session); err != nil {
-			// TODO:log
+			logger.Warn("session consolidation failed", "session", session.Key, "error", err)
 		}
 	}
 	// 每轮进入tool loop前，帮inbound的channel/chatid 传给message tool

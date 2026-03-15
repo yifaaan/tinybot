@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"tinybot/internal/app"
+	"tinybot/internal/utils/logger"
 )
 
 const logo = `
@@ -14,6 +15,11 @@ const logo = `
 `
 
 func main() {
+	logger.Init(logger.Config{
+		Level:  "info",
+		Format: "text",
+		Output: "stderr",
+	})
 	fmt.Print(logo)
 
 	workspace := app.DefaultWorkspacePath()
