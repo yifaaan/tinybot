@@ -38,7 +38,7 @@ func NewLoop(processor transport.MessageProcessor, bus transport.MessageBus) *Lo
 
 // streamingProcessor 检测 processor 是否支持流式
 type streamingProcessor interface {
-	ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(string)) (model.OutboundMessage, error)
+	ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(string), onThinking func(string)) (model.OutboundMessage, error)
 }
 
 // streamWriterChannel 检测 channel 是否支持流式写入
@@ -67,15 +67,26 @@ func (l *Loop) Run(ctx context.Context) error {
 		if sp, ok := l.processor.(streamingProcessor); ok && msg.StreamWriter != nil {
 			writer := msg.StreamWriter
 			var streamed bool
-			out, err = sp.ProcessMessageStream(ctx, msg, func(delta string) {
+
+			onDelta := func(delta string) {
 				streamed = true
 				writer.WriteDelta(delta)
-				// 每个 delta 后立即 flush，确保终端实时显示
 				if flusher, ok := writer.(interface{ Flush() error }); ok {
 					flusher.Flush()
 				}
-			})
-			out.Streamed = streamed // 只有真正有流式输出时才标记
+			}
+
+			// onThinking：如果 channel 的 StreamWriter 支持 WriteThinking，就转发推理内容
+			var onThinking func(string)
+			if tw, ok := writer.(model.ThinkingStreamWriter); ok {
+				logger.Debug("ThinkingStreamWriter detected", "writer_type", fmt.Sprintf("%T", writer))
+				onThinking = func(delta string) {
+					tw.WriteThinking(delta)
+				}
+			}
+
+			out, err = sp.ProcessMessageStream(ctx, msg, onDelta, onThinking)
+			out.Streamed = streamed
 			logger.Debug("streaming completed", "session", msg.SessionKey(), "streamed", streamed)
 		} else {
 			out, err = l.processor.ProcessMessage(ctx, msg)

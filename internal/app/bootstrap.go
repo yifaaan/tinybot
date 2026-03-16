@@ -115,7 +115,7 @@ func newLLMClientFromConfig(cfg *Config) (chatservice.CompletionClient, error) {
 	}
 
 	reg := provider.DefaultRegistry()
-	client, err := reg.Create(entry.Kind, apiKey, apiBase, model)
+	client, err := reg.Create(entry.Kind, apiKey, apiBase, model, cfg.Agents.EnableThinking)
 	if err != nil {
 		return nil, err
 	}

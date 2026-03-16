@@ -141,12 +141,20 @@ func (c *TelegramChannel) Send(ctx context.Context, out model.OutboundMessage) e
 	return nil
 }
 
+// TelegramStreamWriter 支持将 thinking 和正文分区显示的流式写入器。
+//
+// Telegram 消息结构：
+//   <blockquote expandable>🤔 Thinking...\n{thinking内容}</blockquote>
+//   {正文内容}
+//
+// thinking 阶段先推送，正文随后。两部分拼接成一条消息，通过 editMessageText 实时更新。
 type TelegramStreamWriter struct {
 	bot          *tgbotapi.BotAPI
 	chatID       int64
-	messageID    int // 0 = 未发送的初始消息
-	content      strings.Builder
-	dirty        bool // 自上次 edit 以来是否有新增内容
+	messageID    int
+	thinking     strings.Builder // 推理过程文本
+	content      strings.Builder // 正文文本
+	dirty        bool
 	lastEditAt   time.Time
 	editInterval time.Duration
 	mu           sync.Mutex
@@ -160,7 +168,25 @@ func newTelegramStreamWriter(bot *tgbotapi.BotAPI, chatID int64) *TelegramStream
 	}
 }
 
-// WriteDelta 累积增量文本，满足 debounce 条件时发送/更新 Telegram 消息。
+// WriteThinking 累积推理过程增量，用 Telegram 的折叠引用块呈现。
+func (w *TelegramStreamWriter) WriteThinking(delta string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.thinking.WriteString(delta)
+	w.dirty = true
+
+	now := time.Now()
+	if w.messageID == 0 {
+		return w.sendInitial(now)
+	}
+	if now.Sub(w.lastEditAt) >= w.editInterval {
+		return w.editCurrent(now)
+	}
+	return nil
+}
+
+// WriteDelta 累积正文增量文本。
 func (w *TelegramStreamWriter) WriteDelta(delta string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -169,17 +195,12 @@ func (w *TelegramStreamWriter) WriteDelta(delta string) error {
 	w.dirty = true
 
 	now := time.Now()
-
 	if w.messageID == 0 {
 		return w.sendInitial(now)
 	}
-
-	// 距离上次 edit 超过时间间隔：更新消息
 	if now.Sub(w.lastEditAt) >= w.editInterval {
 		return w.editCurrent(now)
 	}
-
-	// 正常情况：不更新消息,累计内容 或 finalFlush
 	return nil
 }
 
@@ -187,25 +208,55 @@ func (w *TelegramStreamWriter) Flush() error {
 	return nil
 }
 
-// finalFlush 无视 debounce 间隔，强制同步累积内容到 Telegram。
-// 由 TelegramChannel.Send() 在流式输出结束后调用。
 func (w *TelegramStreamWriter) finalFlush() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if !w.dirty || w.content.Len() == 0 {
+	if !w.dirty || (w.thinking.Len() == 0 && w.content.Len() == 0) {
 		return nil
 	}
 	if w.messageID == 0 {
 		return w.sendInitial(time.Now())
 	}
-
 	return w.editCurrent(time.Now())
 }
 
-// sendInitial 发送初始占位消息，保存 messageID 并设置 dirty=false。
+// composeMessage 拼接 thinking + content 成完整的 Telegram 消息文本。
+//
+// 如果有 thinking 内容，用 <blockquote expandable> 包裹，
+// 这是 Telegram 原生支持的可折叠引用块，用户可以点击展开/收起。
+// 使用 ParseMode=HTML 时，content 也必须转义，否则 < > & 会破坏解析或导致显示异常。
+func (w *TelegramStreamWriter) composeMessage() string {
+	var sb strings.Builder
+	useHTML := w.thinking.Len() > 0
+
+	if w.thinking.Len() > 0 {
+		sb.WriteString("<blockquote expandable>")
+		sb.WriteString("🤔 Thinking...\n")
+		sb.WriteString(escapeHTML(w.thinking.String()))
+		sb.WriteString("</blockquote>\n")
+	}
+
+	if w.content.Len() > 0 {
+		if useHTML {
+			sb.WriteString(escapeHTML(w.content.String()))
+		} else {
+			sb.WriteString(w.content.String())
+		}
+	}
+
+	text := sb.String()
+	if strings.TrimSpace(text) == "" {
+		return "..."
+	}
+	return text
+}
+
 func (w *TelegramStreamWriter) sendInitial(now time.Time) error {
-	msg := tgbotapi.NewMessage(w.chatID, w.content.String())
+	msg := tgbotapi.NewMessage(w.chatID, w.composeMessage())
+	if w.thinking.Len() > 0 {
+		msg.ParseMode = "HTML"
+	}
 	sent, err := w.bot.Send(msg)
 	if err != nil {
 		return fmt.Errorf("telegram: send initial message: %w", err)
@@ -217,11 +268,20 @@ func (w *TelegramStreamWriter) sendInitial(now time.Time) error {
 }
 
 func (w *TelegramStreamWriter) editCurrent(now time.Time) error {
-	edit := tgbotapi.NewEditMessageText(w.chatID, w.messageID, w.content.String())
+	edit := tgbotapi.NewEditMessageText(w.chatID, w.messageID, w.composeMessage())
+	if w.thinking.Len() > 0 {
+		edit.ParseMode = "HTML"
+	}
 	if _, err := w.bot.Send(edit); err != nil {
 		return fmt.Errorf("telegram stream edit: %w", err)
 	}
 	w.lastEditAt = now
 	w.dirty = false
 	return nil
+}
+
+// escapeHTML 转义 HTML 特殊字符，避免 thinking 内容中的 < > & 破坏 Telegram 的 HTML 解析。
+func escapeHTML(s string) string {
+	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+	return r.Replace(s)
 }

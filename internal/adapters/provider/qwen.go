@@ -11,6 +11,7 @@ import (
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/packages/respjson"
 	"github.com/openai/openai-go/shared"
 )
 
@@ -20,8 +21,9 @@ const (
 )
 
 type QwenProvider struct {
-	client *openai.Client
-	model  string
+	client         *openai.Client
+	model          string
+	enableThinking bool
 }
 
 // NewQwenProvider creates a new QwenProvider.
@@ -38,7 +40,7 @@ type QwenProvider struct {
 //	*QwenProvider
 //
 //	error
-func NewQwenProvider(apiKey string, apiBase string, model string) (*QwenProvider, error) {
+func NewQwenProvider(apiKey string, apiBase string, model string, enableThinking bool) (*QwenProvider, error) {
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, errors.New("qwen provider: api key is required")
 	}
@@ -51,8 +53,9 @@ func NewQwenProvider(apiKey string, apiBase string, model string) (*QwenProvider
 	client := openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(apiBase))
 
 	return &QwenProvider{
-		client: &client,
-		model:  model,
+		client:         &client,
+		model:          model,
+		enableThinking: enableThinking,
 	}, nil
 }
 
@@ -69,7 +72,7 @@ func NewQwenProvider(apiKey string, apiBase string, model string) (*QwenProvider
 //
 //	error
 func (q *QwenProvider) Chat(ctx context.Context, messages []map[string]any, tools []map[string]any, maxTokens int, temperature float32) (model.LLMResponse, error) {
-	logger.Debug("llm chat request", "model", q.model, "messages", len(messages), "tools", len(tools))
+	logger.Debug("llm chat request", "model", q.model, "messages", len(messages), "tools", len(tools), "thinking", q.enableThinking)
 
 	convertedMessages, err := convertMessages(messages)
 	if err != nil {
@@ -86,7 +89,6 @@ func (q *QwenProvider) Chat(ctx context.Context, messages []map[string]any, tool
 	if temperature >= 0 {
 		params.Temperature = openai.Float(float64(temperature))
 	}
-	// TODO: 每次调用都会传入所有工具的定义，需要优化
 	if len(tools) > 0 {
 		convertedTools, err := convertTools(tools)
 		if err != nil {
@@ -95,7 +97,13 @@ func (q *QwenProvider) Chat(ctx context.Context, messages []map[string]any, tool
 		params.Tools = convertedTools
 	}
 
-	resp, err := q.client.Chat.Completions.New(ctx, params)
+	// 构建请求选项：如果启用 thinking，通过 WithJSONSet 注入厂商扩展参数
+	var reqOpts []option.RequestOption
+	if q.enableThinking {
+		reqOpts = append(reqOpts, option.WithJSONSet("enable_thinking", true))
+	}
+
+	resp, err := q.client.Chat.Completions.New(ctx, params, reqOpts...)
 	if err != nil {
 		return model.LLMResponse{}, fmt.Errorf("qwen provider chat: %w", err)
 	}
@@ -106,12 +114,12 @@ func (q *QwenProvider) Chat(ctx context.Context, messages []map[string]any, tool
 	choice := resp.Choices[0]
 	out := model.LLMResponse{
 		Content:      strings.TrimSpace(choice.Message.Content),
+		Thinking:     extractExtraString(choice.Message.JSON.ExtraFields, "reasoning_content"),
 		FinishReason: choice.FinishReason,
 		PromptTokens: int(resp.Usage.PromptTokens),
 		OutputTokens: int(resp.Usage.CompletionTokens),
 	}
 
-	// Model need call tools
 	if len(choice.Message.ToolCalls) > 0 {
 		out.ToolCalls = make([]*model.ToolCall, 0, len(choice.Message.ToolCalls))
 		for _, tc := range choice.Message.ToolCalls {
@@ -133,9 +141,8 @@ func (q *QwenProvider) Chat(ctx context.Context, messages []map[string]any, tool
 	return out, nil
 }
 
-// ChatStream 发起流式对话请求，委托给包内共享的 streamChat 实现。
 func (q *QwenProvider) ChatStream(ctx context.Context, messages []map[string]any, tools []map[string]any, maxTokens int, temperature float32) <-chan model.StreamEvent {
-	return streamChat(q.client, q.model, ctx, messages, tools, maxTokens, temperature)
+	return streamChat(q.client, q.model, ctx, messages, tools, maxTokens, temperature, q.enableThinking)
 }
 
 func convertMessages(messages []map[string]any) ([]openai.ChatCompletionMessageParamUnion, error) {
@@ -474,4 +481,28 @@ func normalizeArguments(value any) (string, error) {
 func stringValue(value any) string {
 	text, _ := value.(string)
 	return text
+}
+
+// extractExtraString 从 SDK 响应的 ExtraFields 中提取字符串类型的厂商扩展字段。
+//
+// 用于解析 Qwen3 的 reasoning_content、DeepSeek 的 reasoning_content 等。
+// ExtraFields 是 openai-go SDK 预留的扩展机制：
+// - SDK 只解析 OpenAI 标准字段（content, tool_calls 等）
+// - 厂商扩展字段落入 ExtraFields map
+// - 通过 Raw() 拿到原始 JSON 值，再反序列化为目标类型
+func extractExtraString(extraFields map[string]respjson.Field, key string) string {
+	field, ok := extraFields[key]
+	if !ok {
+		return ""
+	}
+	// 注意：不依赖 field.Valid()，因为某些情况下 Valid() 返回 false 但 Raw() 仍有值
+	raw := field.Raw()
+	if raw == "" || raw == "null" {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal([]byte(raw), &s); err != nil {
+		return ""
+	}
+	return s
 }

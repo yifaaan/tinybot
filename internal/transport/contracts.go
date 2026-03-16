@@ -45,9 +45,10 @@ type MessageProcessor interface {
 // StreamingMessageProcessor 支持流式输出的消息处理器
 type StreamingMessageProcessor interface {
 	// ProcessMessageStream 流式处理消息。
-	// onDelta 会在每个文本增量到达时被调用。
+	// onDelta 在每个正文增量到达时被调用。
+	// onThinking 在每个推理过程增量到达时被调用（可为 nil）。
 	// 返回值是完整的 OutboundMessage，用于记录和后续处理。
-	ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(delta string)) (model.OutboundMessage, error)
+	ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(delta string), onThinking func(delta string)) (model.OutboundMessage, error)
 }
 
 // Channel represents an external chat transport connected to the gateway runtime.

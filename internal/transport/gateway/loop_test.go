@@ -56,7 +56,7 @@ func (p *fakeStreamingProcessor) ProcessMessage(_ context.Context, msg model.Inb
 	return model.OutboundMessage{}, nil
 }
 
-func (p *fakeStreamingProcessor) ProcessMessageStream(_ context.Context, msg model.InboundMessage, onDelta func(string)) (model.OutboundMessage, error) {
+func (p *fakeStreamingProcessor) ProcessMessageStream(_ context.Context, msg model.InboundMessage, onDelta func(string), onThinking func(string)) (model.OutboundMessage, error) {
 	p.mu.Lock()
 	p.streamCalls++
 	p.seen = append(p.seen, msg)

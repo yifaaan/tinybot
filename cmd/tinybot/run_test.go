@@ -47,7 +47,7 @@ func (f *fakeDirectStreamingProcessor) ProcessDirect(ctx context.Context, sessio
 	return "", nil
 }
 
-func (f *fakeDirectStreamingProcessor) ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(string)) (model.OutboundMessage, error) {
+func (f *fakeDirectStreamingProcessor) ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(string), onThinking func(string)) (model.OutboundMessage, error) {
 	f.streamCalls++
 	f.lastMsg = msg
 

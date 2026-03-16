@@ -9,4 +9,4 @@ test.md
 .cache
 .planning
 .claude
-*.exe
+*.exe*

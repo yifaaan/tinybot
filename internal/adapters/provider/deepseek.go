@@ -26,8 +26,9 @@ const (
 // Deepseek 是一个提供高性能 LLM 服务的中国公司
 // API 兼容 OpenAI 格式，因此可以复用 openai-go SDK
 type DeepseekProvider struct {
-	client *openai.Client
-	model  string
+	client         *openai.Client
+	model          string
+	enableThinking bool
 }
 
 // NewDeepseekProvider 创建一个新的 DeepseekProvider
@@ -45,7 +46,7 @@ type DeepseekProvider struct {
 //	*DeepseekProvider
 //
 //	error
-func NewDeepseekProvider(apiKey string, apiBase string, model string) (*DeepseekProvider, error) {
+func NewDeepseekProvider(apiKey string, apiBase string, model string, enableThinking bool) (*DeepseekProvider, error) {
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, errors.New("deepseek provider: api key is required")
 	}
@@ -64,14 +65,14 @@ func NewDeepseekProvider(apiKey string, apiBase string, model string) (*Deepseek
 	)
 
 	return &DeepseekProvider{
-		client: &client,
-		model:  model,
+		client:         &client,
+		model:          model,
+		enableThinking: enableThinking,
 	}, nil
 }
 
-// ChatStream 发起流式对话请求，委托给包内共享的 streamChat 实现。
 func (p *DeepseekProvider) ChatStream(ctx context.Context, messages []map[string]any, tools []map[string]any, maxTokens int, temperature float32) <-chan model.StreamEvent {
-	return streamChat(p.client, p.model, ctx, messages, tools, maxTokens, temperature)
+	return streamChat(p.client, p.model, ctx, messages, tools, maxTokens, temperature, p.enableThinking)
 }
 
 // Chat 发送聊天请求到 Deepseek API
@@ -120,7 +121,12 @@ func (p *DeepseekProvider) Chat(ctx context.Context, messages []map[string]any, 
 		params.Tools = convertedTools
 	}
 
-	resp, err := p.client.Chat.Completions.New(ctx, params)
+	var reqOpts []option.RequestOption
+	if p.enableThinking {
+		reqOpts = append(reqOpts, option.WithJSONSet("enable_thinking", true))
+	}
+
+	resp, err := p.client.Chat.Completions.New(ctx, params, reqOpts...)
 	if err != nil {
 		return model.LLMResponse{}, fmt.Errorf("deepseek provider chat completion: %w", err)
 	}
@@ -132,12 +138,11 @@ func (p *DeepseekProvider) Chat(ctx context.Context, messages []map[string]any, 
 	choice := resp.Choices[0]
 	out := model.LLMResponse{
 		Content:      strings.TrimSpace(choice.Message.Content),
+		Thinking:     extractExtraString(choice.Message.JSON.ExtraFields, "reasoning_content"),
 		FinishReason: choice.FinishReason,
 		PromptTokens: int(resp.Usage.PromptTokens),
 		OutputTokens: int(resp.Usage.CompletionTokens),
 	}
-
-	// 解析工具调用
 	if len(choice.Message.ToolCalls) > 0 {
 		out.ToolCalls = make([]*model.ToolCall, 0, len(choice.Message.ToolCalls))
 		for _, tc := range choice.Message.ToolCalls {

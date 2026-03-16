@@ -83,9 +83,17 @@ type OutboundMessage struct {
 }
 
 // StreamWriter 定义流式输出写入能力
-//
-// - ConsoleChannel 可以直接实现它
-// - TelegramChannel 可能需要不同的实现（分块发送、Markdown 解析等）
 type StreamWriter interface {
 	WriteDelta(delta string) error
+}
+
+// ThinkingStreamWriter 在 StreamWriter 基础上增加推理过程的写入能力。
+//
+// 为什么用独立接口而不是在 StreamWriter 上加方法：
+// - 不是所有 channel 都想显示推理过程（有的只关心最终回答）
+// - 用接口断言让 gateway loop 按需检测，不强制每个 channel 都实现
+// - 遵循 Go 的"小接口"原则：接口越小，实现自由度越高
+type ThinkingStreamWriter interface {
+	StreamWriter
+	WriteThinking(delta string) error
 }

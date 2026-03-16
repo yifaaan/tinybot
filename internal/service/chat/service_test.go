@@ -1022,9 +1022,8 @@ func TestService_ProcessMessageStream_StreamsFinalAnswerAndPersistsTrace(t *test
 		ChatID:  "local",
 		Content: "请流式回答",
 	}, func(delta string) {
-		// 每收到一次增量，就记录一次。
 		deltas = append(deltas, delta)
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("ProcessMessageStream() error: %v", err)
 	}
@@ -1155,9 +1154,8 @@ func TestService_ProcessMessageStream_ToolLoopRegression(t *testing.T) {
 		ChatID:  "local",
 		Content: "read the file",
 	}, func(delta string) {
-		// 只记录最终回答那一轮真正推给用户的增量文本。
 		deltas = append(deltas, delta)
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("ProcessMessageStream() error: %v", err)
 	}
@@ -1274,9 +1272,8 @@ func TestService_ProcessMessageStream_StreamErrorDoesNotPersistPartialTrace(t *t
 		ChatID:  "local",
 		Content: "请流式回答，但中途失败",
 	}, func(delta string) {
-		// 即使流途中失败，前面已经收到的 delta 仍然会被推送给调用方。
 		deltas = append(deltas, delta)
-	})
+	}, nil)
 	if err == nil {
 		t.Fatal("expected stream error, got nil")
 	}

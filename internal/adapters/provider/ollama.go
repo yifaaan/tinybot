@@ -72,7 +72,7 @@ func NewOllamaProvider(apiKey string, apiBase string, model string) (*OllamaProv
 
 // ChatStream 发起流式对话请求，委托给包内共享的 streamChat 实现。
 func (p *OllamaProvider) ChatStream(ctx context.Context, messages []map[string]any, tools []map[string]any, maxTokens int, temperature float32) <-chan model.StreamEvent {
-	return streamChat(p.client, p.model, ctx, messages, tools, maxTokens, temperature)
+	return streamChat(p.client, p.model, ctx, messages, tools, maxTokens, temperature, false)
 }
 
 // Chat 发送聊天请求到 Ollama API

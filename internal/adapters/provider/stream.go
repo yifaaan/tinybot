@@ -5,16 +5,13 @@ import (
 	"encoding/json"
 	"strings"
 	"tinybot/internal/domain/model"
+	"tinybot/internal/utils/logger"
 
 	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
 )
 
 // streamChat 是所有 provider 共用的流式对话实现。
-//
-// 为什么提取成包内私有函数？
-// - 4 个 provider 都使用同一个 openai-go SDK，流式逻辑完全一致
-// - 按照 Rule of Three，第 3 次出现相同代码时应提取为共享函数
-// - 保持私有，不暴露给包外，不增加 API 表面积
 //
 // 流程：
 // 1. 复用 convertMessages/convertTools 构造请求参数
@@ -22,6 +19,16 @@ import (
 // 3. 在 goroutine 中逐个消费 chunk，推送 Delta 事件给调用方
 // 4. 累积 tool call 的 name/arguments 片段
 // 5. 流结束时拼装完整 LLMResponse 作为 Done 事件
+// streamChat 是所有 provider 共用的流式对话实现。
+//
+// enableThinking 控制是否启用推理模式：
+// - true: 注入 enable_thinking=true 参数，并从 delta 的 ExtraFields 中提取 reasoning_content
+// - false: 标准流式行为，不做任何额外处理
+//
+// Qwen3 的流式 thinking 协议：
+// 1. 模型先输出一连串 thinking delta（reasoning_content 字段有值，content 为空）
+// 2. 然后输出正文 delta（content 字段有值，reasoning_content 为空）
+// 3. 最后一个 chunk 的 finish_reason 标记流结束
 func streamChat(
 	client *openai.Client,
 	modelName string,
@@ -30,6 +37,7 @@ func streamChat(
 	tools []map[string]any,
 	maxTokens int,
 	temperature float32,
+	enableThinking bool,
 ) <-chan model.StreamEvent {
 	ch := make(chan model.StreamEvent)
 
@@ -61,9 +69,15 @@ func streamChat(
 			params.Tools = convertedTools
 		}
 
-		stream := client.Chat.Completions.NewStreaming(ctx, params)
+		var reqOpts []option.RequestOption
+		if enableThinking {
+			reqOpts = append(reqOpts, option.WithJSONSet("enable_thinking", true))
+		}
+
+		stream := client.Chat.Completions.NewStreaming(ctx, params, reqOpts...)
 
 		var contentBuilder strings.Builder
+		var thinkingBuilder strings.Builder
 		type toolCallAccum struct {
 			ID   string
 			Name string
@@ -72,6 +86,7 @@ func streamChat(
 		accum := make(map[int]*toolCallAccum)
 		var finishReason string
 
+		chunkCount := 0
 		for stream.Next() {
 			chunk := stream.Current()
 			if len(chunk.Choices) == 0 {
@@ -79,6 +94,18 @@ func streamChat(
 			}
 			choice := chunk.Choices[0]
 			finishReason = choice.FinishReason
+			chunkCount++
+
+			// 检查 thinking delta：厂商扩展字段 reasoning_content
+			if enableThinking {
+				if thinkingDelta := extractExtraString(choice.Delta.JSON.ExtraFields, "reasoning_content"); thinkingDelta != "" {
+					thinkingBuilder.WriteString(thinkingDelta)
+					ch <- model.StreamEvent{
+						Kind:  model.StreamEventThinking,
+						Delta: thinkingDelta,
+					}
+				}
+			}
 
 			if choice.Delta.Content != "" {
 				contentBuilder.WriteString(choice.Delta.Content)
@@ -108,8 +135,16 @@ func streamChat(
 			return
 		}
 
+		logger.Debug("stream finished",
+			"total_chunks", chunkCount,
+			"thinking_len", thinkingBuilder.Len(),
+			"content_len", contentBuilder.Len(),
+			"enableThinking", enableThinking,
+		)
+
 		resp := model.LLMResponse{
 			Content:      strings.TrimSpace(contentBuilder.String()),
+			Thinking:     strings.TrimSpace(thinkingBuilder.String()),
 			FinishReason: finishReason,
 		}
 

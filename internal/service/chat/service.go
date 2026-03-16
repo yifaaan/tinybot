@@ -159,6 +159,7 @@ func (s *Service) processTurn(ctx context.Context, msg model.InboundMessage, cal
 	}}
 
 	var answer string
+	var lastThinking string
 	for iteration := 0; iteration < s.maxIterations; iteration++ {
 		logger.Debug("llm call iteration", "session", session.Key, "iteration", iteration+1)
 
@@ -174,8 +175,6 @@ func (s *Service) processTurn(ctx context.Context, msg model.InboundMessage, cal
 		if resp.HasToolCalls() {
 			logger.Debug("tool calls received", "session", session.Key, "count", len(resp.ToolCalls))
 
-			// 把内部 ToolCall 重新编码成 provider 的 tool-call message 形状，
-			// 让下一轮模型调用能"看见自己刚才请求了什么工具"。
 			toolCallMaps := make([]map[string]any, 0, len(resp.ToolCalls))
 			for _, tc := range resp.ToolCalls {
 				argJSON, _ := json.Marshal(tc.Args)
@@ -190,12 +189,15 @@ func (s *Service) processTurn(ctx context.Context, msg model.InboundMessage, cal
 			}
 
 			llmMessages = s.prompts.AddAssistantMessage(llmMessages, resp.Content, toolCallMaps)
+
+			traceAttrs := map[string]any{"tool_calls": toolCallMaps}
+			if resp.Thinking != "" {
+				traceAttrs["thinking"] = resp.Thinking
+			}
 			trace = append(trace, traceMessage{
 				role:    model.RoleAssistant,
 				content: strings.TrimSpace(resp.Content),
-				attrs: map[string]any{
-					"tool_calls": toolCallMaps,
-				},
+				attrs:   traceAttrs,
 			})
 
 			for _, tc := range resp.ToolCalls {
@@ -222,7 +224,8 @@ func (s *Service) processTurn(ctx context.Context, msg model.InboundMessage, cal
 		}
 
 		answer = strings.TrimSpace(resp.Content)
-		logger.Debug("got final answer", "session", session.Key, "answer_len", len(answer))
+		lastThinking = strings.TrimSpace(resp.Thinking)
+		logger.Debug("got final answer", "session", session.Key, "answer_len", len(answer), "thinking_len", len(lastThinking))
 		break
 	}
 
@@ -231,10 +234,16 @@ func (s *Service) processTurn(ctx context.Context, msg model.InboundMessage, cal
 		answer = "Sorry, I encountered an error calling the AI model."
 	}
 
-	trace = append(trace, traceMessage{
+	// 最终回答的 trace：如果模型有 thinking 输出，一并记录到 attrs
+	// 但 thinking 不会进入 llmMessages，不会作为历史上下文回传给模型
+	finalTrace := traceMessage{
 		role:    model.RoleAssistant,
 		content: answer,
-	})
+	}
+	if lastThinking != "" {
+		finalTrace.attrs = map[string]any{"thinking": lastThinking}
+	}
+	trace = append(trace, finalTrace)
 
 	for _, item := range trace {
 		session.AddMessage(item.role, item.content, item.attrs)
@@ -308,11 +317,15 @@ func (s *Service) ProcessDirect(ctx context.Context, sessionKey string, content 
 	return content, nil
 }
 
-// ProcessMessageStream 与 ProcessMessage 功能相同，但最终回答通过 onDelta 逐步推送。
+// ProcessMessageStream 与 ProcessMessage 功能相同，但通过回调逐步推送增量内容。
+//
+// 回调说明：
+// - onDelta: 正文增量（每个文本片段到达时调用）
+// - onThinking: 推理过程增量（模型 thinking 阶段的每个片段）；可为 nil 表示不关心
 //
 // 如果 llm 不支持 StreamingCompletionClient，自动回退到非流式 ProcessMessage。
-// 完整的回复仍然会写入 session trace，保证持久化不受影响。
-func (s *Service) ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(delta string)) (model.OutboundMessage, error) {
+// 完整回复仍写入 session trace，保证持久化不受影响。
+func (s *Service) ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(delta string), onThinking func(delta string)) (model.OutboundMessage, error) {
 	streamer, canStream := s.llm.(StreamingCompletionClient)
 	if !canStream {
 		return s.ProcessMessage(ctx, msg)
@@ -322,6 +335,10 @@ func (s *Service) ProcessMessageStream(ctx context.Context, msg model.InboundMes
 		var resp *model.LLMResponse
 		for event := range streamer.ChatStream(ctx, messages, tools, s.maxTokens, s.temperature) {
 			switch event.Kind {
+			case model.StreamEventThinking:
+				if onThinking != nil {
+					onThinking(event.Delta)
+				}
 			case model.StreamEventDelta:
 				if onDelta != nil {
 					onDelta(event.Delta)

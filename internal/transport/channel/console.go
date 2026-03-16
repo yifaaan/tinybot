@@ -198,6 +198,18 @@ func (c *ConsoleChannel) WriteDelta(delta string) error {
 	return err
 }
 
+// WriteThinking 将推理过程增量以灰色（ANSI dim）输出到终端。
+//
+// 使用 ANSI 转义序列 \033[2m (dim) 让 thinking 文本在视觉上与正文区分开来，
+// 每个 delta 后立即 reset 颜色，保证正文输出不受影响。
+func (c *ConsoleChannel) WriteThinking(delta string) error {
+	c.outMu.Lock()
+	defer c.outMu.Unlock()
+
+	_, err := fmt.Fprintf(c.output, "\033[2m%s\033[0m", delta)
+	return err
+}
+
 func (c *ConsoleChannel) Flush() error {
 	c.outMu.Lock()
 	defer c.outMu.Unlock()

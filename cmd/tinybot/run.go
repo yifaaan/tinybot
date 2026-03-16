@@ -20,7 +20,7 @@ type directChatProcessor interface {
 }
 
 type directStreamProcessor interface {
-	ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(string)) (model.OutboundMessage, error)
+	ProcessMessageStream(ctx context.Context, msg model.InboundMessage, onDelta func(string), onThinking func(string)) (model.OutboundMessage, error)
 }
 
 var newDirectChatProcessor = func(workspace string) (directChatProcessor, error) {
@@ -133,8 +133,8 @@ func runDirectChat(args []string, out io.Writer, workspace string) error {
 			}(),
 		}
 		_, err := sp.ProcessMessageStream(ctx, msg, func(delta string) {
-			fmt.Fprint(out, delta) // 每收到一个增量就立即输出，保持流式体验
-		})
+			fmt.Fprint(out, delta)
+		}, nil)
 		if err != nil {
 			return err
 		}
