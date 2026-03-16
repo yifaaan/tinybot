@@ -51,5 +51,54 @@ func TestExecTool_Execute(t *testing.T) {
 		if err == nil {
 			t.Fatalf("exepeted timeout error, got nil")
 		}
+		if !strings.Contains(err.Error(), "command timed out") {
+			t.Fatalf("unexpected timeout error: %v", err)
+		}
 	})
+}
+
+func TestRequiresWindowsShell(t *testing.T) {
+	if requiresWindowsShell(`curl -s "https://wttr.in/Xian?format=%l:+%c+%t"`) {
+		t.Fatal("simple curl command should not require shell")
+	}
+	if !requiresWindowsShell(`curl -s https://wttr.in/Xian?0 2>&1`) {
+		t.Fatal("redirection should require shell")
+	}
+	if !requiresWindowsShell(`curl -s https://wttr.in/Xian?0 | findstr Xian`) {
+		t.Fatal("pipe should require shell")
+	}
+}
+
+func TestSplitWindowsCommandLine_ParsesQuotedURL(t *testing.T) {
+	args, err := splitWindowsCommandLine(`curl -s --connect-timeout 5 --max-time 10 "https://wttr.in/Xian?format=%l:+%c+%t"`)
+	if err != nil {
+		t.Fatalf("splitWindowsCommandLine() error = %v", err)
+	}
+
+	if len(args) != 7 {
+		t.Fatalf("arg count = %d, want 7, args=%q", len(args), args)
+	}
+	if got := args[0]; got != "curl" {
+		t.Fatalf("argv[0] = %q, want curl", got)
+	}
+	if got := args[6]; got != "https://wttr.in/Xian?format=%l:+%c+%t" {
+		t.Fatalf("argv[6] = %q", got)
+	}
+}
+
+func TestSplitWindowsCommandLine_UnterminatedQuote(t *testing.T) {
+	_, err := splitWindowsCommandLine(`curl -s "https://wttr.in/Xian?format=3`)
+	if err == nil {
+		t.Fatal("expected unterminated quote error")
+	}
+}
+
+func TestIsCommandNotFound(t *testing.T) {
+	_, _, err := runExecCommand(context.Background(), "", "command-that-does-not-exist-tinybot-test")
+	if err == nil {
+		t.Fatal("expected command-not-found error")
+	}
+	if !isCommandNotFound(err) {
+		t.Fatalf("expected command-not-found classification, got %T %v", err, err)
+	}
 }

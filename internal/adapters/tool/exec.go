@@ -60,29 +60,9 @@ func (t *ExecTool) Execute(ctx context.Context, params map[string]any) (string, 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		// On Windows, use cmd.exe
-		// Replace 'curl' with 'curl.exe' to avoid PowerShell alias
-		command = strings.ReplaceAll(command, "curl ", "curl.exe ")
-		// Remove unnecessary quotes around URLs (cmd.exe doesn't handle them well)
-		command = strings.ReplaceAll(command, `curl.exe -s "`, "curl.exe -s ")
-		command = strings.ReplaceAll(command, `curl.exe "`, "curl.exe ")
-		command = strings.ReplaceAll(command, `" 2>&1`, " 2>&1")
-		command = strings.TrimSuffix(command, `"`)
-		cmd = exec.CommandContext(ctx, "cmd", "/c", command)
-	} else {
-		cmd = exec.CommandContext(ctx, "sh", "-c", command)
-	}
-	cmd.Dir = workingDir
-
 	logger.Info("exec tool running", "command", command)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
+	stdout, stderr, err := t.runCommand(ctx, command, workingDir)
 	stderrText := strings.TrimSpace(stderr.String())
 
 	var parts []string
@@ -114,4 +94,113 @@ func (t *ExecTool) Execute(ctx context.Context, params map[string]any) (string, 
 	}
 
 	return result, nil
+}
+
+func (t *ExecTool) runCommand(ctx context.Context, command string, workingDir string) (bytes.Buffer, bytes.Buffer, error) {
+	if runtime.GOOS == "windows" {
+		return runWindowsCommand(ctx, command, workingDir)
+	}
+	return runExecCommand(ctx, workingDir, "sh", "-c", command)
+}
+
+func runWindowsCommand(ctx context.Context, command string, workingDir string) (bytes.Buffer, bytes.Buffer, error) {
+	if !requiresWindowsShell(command) {
+		args, err := splitWindowsCommandLine(command)
+		if err == nil && len(args) > 0 {
+			stdout, stderr, runErr := runExecCommand(ctx, workingDir, args[0], args[1:]...)
+			if runErr == nil || !isCommandNotFound(runErr) {
+				return stdout, stderr, runErr
+			}
+		}
+	}
+	return runExecCommand(ctx, workingDir, "cmd", "/c", command)
+}
+
+func runExecCommand(ctx context.Context, workingDir string, name string, args ...string) (bytes.Buffer, bytes.Buffer, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = workingDir
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	return stdout, stderr, err
+}
+
+func requiresWindowsShell(command string) bool {
+	inSingle := false
+	inDouble := false
+
+	for _, ch := range command {
+		switch ch {
+		case '\'':
+			if !inDouble {
+				inSingle = !inSingle
+			}
+		case '"':
+			if !inSingle {
+				inDouble = !inDouble
+			}
+		case '|', '>', '<', '&', ';', '(', ')':
+			if !inSingle && !inDouble {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func splitWindowsCommandLine(command string) ([]string, error) {
+	var args []string
+	var current strings.Builder
+	inSingle := false
+	inDouble := false
+
+	flush := func() {
+		if current.Len() == 0 {
+			return
+		}
+		args = append(args, current.String())
+		current.Reset()
+	}
+
+	for i := 0; i < len(command); i++ {
+		ch := command[i]
+		switch ch {
+		case '"':
+			if inSingle {
+				current.WriteByte(ch)
+				continue
+			}
+			inDouble = !inDouble
+		case '\'':
+			if inDouble {
+				current.WriteByte(ch)
+				continue
+			}
+			inSingle = !inSingle
+		case ' ', '\t':
+			if inSingle || inDouble {
+				current.WriteByte(ch)
+				continue
+			}
+			flush()
+		default:
+			current.WriteByte(ch)
+		}
+	}
+
+	if inSingle || inDouble {
+		return nil, errors.New("unterminated quote in command")
+	}
+
+	flush()
+	return args, nil
+}
+
+func isCommandNotFound(err error) bool {
+	var execErr *exec.Error
+	return errors.As(err, &execErr) && execErr.Err == exec.ErrNotFound
 }
