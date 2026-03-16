@@ -37,6 +37,12 @@ Tips:
 - Today only: `?1` · Current only: `?0`
 - PNG: `curl -s "wttr.in/Berlin.png" -o /tmp/weather.png`
 
+**Windows**: Always use `https://` prefix and escape special chars:
+```cmd
+curl -s https://wttr.in/London?format=3
+```
+For Chinese cities, use pinyin: `wttr.in/Xian` for 西安
+
 ## Open-Meteo (fallback, JSON)
 
 Free, no key, good for programmatic use:
