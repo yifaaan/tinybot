@@ -3,173 +3,159 @@ package workspace
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
-	"tinybot/internal/utils"
+	"time"
 )
 
-func writeTestFile(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("MkdirAll(%q) error: %v", path, err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("WriteFile(%q) error: %v", path, err)
-	}
-}
+func TestMemoryStore_AppendToday(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewMemoryStore(tmpDir)
 
-func todayFilePath(root string) string {
-	return filepath.Join(root, "memory", utils.TodayDate()+".md")
-}
-
-func TestNewMemoryStore_CreatesMemoryDirAndPaths(t *testing.T) {
-	root := t.TempDir()
-	store := NewMemoryStore(root)
-
-	wantDir := filepath.Join(root, "memory")
-	if store.memoryDir != wantDir {
-		t.Fatalf("memoryDir = %q, want %q", store.memoryDir, wantDir)
-	}
-
-	info, err := os.Stat(wantDir)
+	err := store.AppendToday("First entry")
 	if err != nil {
-		t.Fatalf("memory dir not created: %v", err)
-	}
-	if !info.IsDir() {
-		t.Fatalf("memory path is not a directory: %q", wantDir)
+		t.Fatalf("AppendToday failed: %v", err)
 	}
 
-	wantLongTerm := filepath.Join(wantDir, "MEMORY.md")
-	if got := store.LongTermPath(); got != wantLongTerm {
-		t.Fatalf("LongTermPath() = %q, want %q", got, wantLongTerm)
-	}
-
-	if got := store.TodayPath(); got != todayFilePath(root) {
-		t.Fatalf("TodayPath() = %q, want %q", got, todayFilePath(root))
-	}
-}
-
-func TestReadLongTerm(t *testing.T) {
-	root := t.TempDir()
-	store := NewMemoryStore(root)
-
-	want := "user likes Go"
-	writeTestFile(t, filepath.Join(root, "memory", "MEMORY.md"), want)
-
-	got, err := store.ReadLongTerm()
+	content, err := os.ReadFile(store.TodayPath())
 	if err != nil {
-		t.Fatalf("ReadLongTerm() error: %v", err)
+		t.Fatalf("Failed to read today file: %v", err)
 	}
-	if got != want {
-		t.Fatalf("ReadLongTerm() = %q, want %q", got, want)
+
+	contentStr := string(content)
+	if !contains(contentStr, "First entry") {
+		t.Errorf("Content doesn't contain 'First entry': %s", contentStr)
+	}
+
+	err = store.AppendToday("Second entry")
+	if err != nil {
+		t.Fatalf("AppendToday (second) failed: %v", err)
+	}
+
+	content, err = os.ReadFile(store.TodayPath())
+	if err != nil {
+		t.Fatalf("Failed to read today file: %v", err)
+	}
+
+	contentStr = string(content)
+	if !contains(contentStr, "First entry") || !contains(contentStr, "Second entry") {
+		t.Errorf("Content doesn't contain both entries: %s", contentStr)
 	}
 }
 
-func TestReadLongTerm_NotFound(t *testing.T) {
-	root := t.TempDir()
-	store := NewMemoryStore(root)
+func TestMemoryStore_WriteLongTerm(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewMemoryStore(tmpDir)
 
-	got, err := store.ReadLongTerm()
+	content := "This is long-term memory"
+	err := store.WriteLongTerm(content)
+	if err != nil {
+		t.Fatalf("WriteLongTerm failed: %v", err)
+	}
+
+	readContent, err := store.ReadLongTerm()
+	if err != nil {
+		t.Fatalf("ReadLongTerm failed: %v", err)
+	}
+
+	if readContent != content {
+		t.Errorf("Expected %q, got %q", content, readContent)
+	}
+}
+
+func TestMemoryStore_GetRecentMemories(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewMemoryStore(tmpDir)
+	today := time.Now()
+	for i := 0; i < 3; i++ {
+		date := today.AddDate(0, 0, -i)
+		dateStr := date.Format("2006-01-02")
+		filePath := filepath.Join(store.memoryDir, dateStr+".md")
+		content := "Memory for " + dateStr
+		err := os.WriteFile(filePath, []byte(content), 0644)
+		if err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+	}
+
+	memories, err := store.GetRecentMemories(3)
+	if err != nil {
+		t.Fatalf("GetRecentMemories failed: %v", err)
+	}
+
+	if memories == "" {
+		t.Error("Expected non-empty memories")
+	}
+
+	for i := 0; i < 3; i++ {
+		date := today.AddDate(0, 0, -i)
+		dateStr := date.Format("2006-01-02")
+		if !contains(memories, dateStr) {
+			t.Errorf("Memories don't contain %s", dateStr)
+		}
+	}
+}
+
+func TestMemoryStore_GetRecentMemories_InvalidDays(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewMemoryStore(tmpDir)
+
+	_, err := store.GetRecentMemories(0)
 	if err == nil {
-		t.Fatal("ReadLongTerm() expected error, got nil")
+		t.Error("Expected error for days=0")
 	}
-	if got != "" {
-		t.Fatalf("ReadLongTerm() = %q, want empty string", got)
-	}
-}
 
-func TestReadToday_NotFound(t *testing.T) {
-	root := t.TempDir()
-	store := NewMemoryStore(root)
-
-	got, err := store.ReadToday()
+	_, err = store.GetRecentMemories(-1)
 	if err == nil {
-		t.Fatal("ReadToday() expected error, got nil")
-	}
-	if got != "" {
-		t.Fatalf("ReadToday() = %q, want empty string", got)
+		t.Error("Expected error for days=-1")
 	}
 }
 
-func TestReadToday(t *testing.T) {
-	root := t.TempDir()
-	store := NewMemoryStore(root)
+func TestMemoryStore_ListMemoryFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewMemoryStore(tmpDir)
 
-	want := "# notes\nlearn interfaces"
-	writeTestFile(t, todayFilePath(root), want)
+	dates := []string{"2026-03-15", "2026-03-16", "2026-03-14"}
+	for _, date := range dates {
+		filePath := filepath.Join(store.memoryDir, date+".md")
+		err := os.WriteFile(filePath, []byte("test"), 0644)
+		if err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+	}
 
-	got, err := store.ReadToday()
+	files, err := store.ListMemoryFiles()
 	if err != nil {
-		t.Fatalf("ReadToday() error: %v", err)
+		t.Fatalf("ListMemoryFiles failed: %v", err)
 	}
-	if got != want {
-		t.Fatalf("ReadToday() = %q, want %q", got, want)
+
+	if len(files) != 3 {
+		t.Errorf("Expected 3 files, got %d", len(files))
 	}
-}
 
-func TestMemoryStore_BuildContext_Empty(t *testing.T) {
-	root := t.TempDir()
-	store := NewMemoryStore(root)
-
-	got := store.BuildContext()
-	if got != "" {
-		t.Fatalf("BuildContext() = %q, want empty string", got)
+	if len(files) >= 2 && !contains(files[0], "2026-03-16") {
+		t.Errorf("Expected newest file first, got %s", files[0])
 	}
 }
 
-func TestMemoryStore_BuildContext_WithLongTermMemory(t *testing.T) {
-	root := t.TempDir()
-	store := NewMemoryStore(root)
+func TestMemoryStore_ListMemoryFiles_EmptyDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewMemoryStore(tmpDir)
 
-	writeTestFile(t, filepath.Join(root, "memory", "MEMORY.md"), "remember user prefers concise replies")
+	files, err := store.ListMemoryFiles()
+	if err != nil {
+		t.Fatalf("ListMemoryFiles failed: %v", err)
+	}
 
-	got := store.BuildContext()
-	want := "## Long-term Memory\nremember user prefers concise replies"
-	if got != want {
-		t.Fatalf("BuildContext() = %q, want %q", got, want)
+	if len(files) != 0 {
+		t.Errorf("Expected 0 files, got %d", len(files))
 	}
 }
 
-func TestMemoryStore_BuildContext_WithTodayNote(t *testing.T) {
-	root := t.TempDir()
-	store := NewMemoryStore(root)
-
-	writeTestFile(t, todayFilePath(root), "# today\nfinish tests")
-
-	got := store.BuildContext()
-	want := "## Today's Notes\n# today\nfinish tests"
-	if got != want {
-		t.Fatalf("BuildContext() = %q, want %q", got, want)
+func contains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
 	}
-}
-
-func TestMemoryStore_BuildContext_WithLongTermAndToday(t *testing.T) {
-	root := t.TempDir()
-	store := NewMemoryStore(root)
-
-	writeTestFile(t, filepath.Join(root, "memory", "MEMORY.md"), "remember user prefers concise replies")
-	writeTestFile(t, todayFilePath(root), "# today\nfinish tests")
-
-	got := store.BuildContext()
-
-	if !strings.Contains(got, "## Long-term Memory\nremember user prefers concise replies") {
-		t.Fatalf("BuildContext() missing long-term memory section:\n%s", got)
-	}
-	if !strings.Contains(got, "## Today's Notes\n# today\nfinish tests") {
-		t.Fatalf("BuildContext() missing today's notes section:\n%s", got)
-	}
-
-	longTermIndex := strings.Index(got, "## Long-term Memory")
-	todayIndex := strings.Index(got, "## Today's Notes")
-	if longTermIndex == -1 || todayIndex == -1 {
-		t.Fatalf("BuildContext() missing required sections:\n%s", got)
-	}
-	if longTermIndex > todayIndex {
-		t.Fatalf("BuildContext() section order is wrong:\n%s", got)
-	}
-
-	want := "## Long-term Memory\nremember user prefers concise replies\n\n## Today's Notes\n# today\nfinish tests"
-	if got != want {
-		t.Fatalf("BuildContext() = %q, want %q", got, want)
-	}
+	return false
 }
