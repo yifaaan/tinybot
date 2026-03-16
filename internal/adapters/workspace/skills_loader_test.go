@@ -171,3 +171,70 @@ func TestSkillsLoader_BuildSummary(t *testing.T) {
 		t.Fatalf("summary missing closing tag:\n%s", got)
 	}
 }
+
+func TestSkillsLoader_CheckRequirements_MissingBin(t *testing.T) {
+	workspace := t.TempDir()
+	builtin := t.TempDir()
+	skillContent := `---
+name: test-skill
+metadata: {"openclaw":{"requires":{"bins":["nonexistent-bin-xyz"]}}}
+---
+`
+	_ = writeSkillFile(t, filepath.Join(workspace, "skills"), "test-skill", skillContent)
+	loader := NewSkillsLoader(workspace, builtin)
+
+	skills, err := loader.ListSkills(false)
+	if err != nil {
+		t.Fatalf("ListSkills() error: %v", err)
+	}
+
+	skill, ok := findSkill(skills, "test-skill")
+	if !ok {
+		t.Fatal("expected to find test-skill")
+	}
+	if skill.Available {
+		t.Fatalf("skill.Available = true, want false (missing bin)")
+	}
+	if len(skill.Missing) == 0 {
+		t.Fatal("skill.Missing is empty, expected missing bin entry")
+	}
+	found := false
+	for _, m := range skill.Missing {
+		if strings.Contains(m, "nonexistent-bin-xyz") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("skill.Missing = %v, expected to contain nonexistent-bin-xyz", skill.Missing)
+	}
+}
+
+func TestSkillsLoader_CheckRequirements_AvailableBin(t *testing.T) {
+	workspace := t.TempDir()
+	builtin := t.TempDir()
+	// "go" should be available in PATH during test
+	skillContent := `---
+name: go-skill
+metadata: {"openclaw":{"requires":{"bins":["go"]}}}
+---
+`
+	_ = writeSkillFile(t, filepath.Join(workspace, "skills"), "go-skill", skillContent)
+	loader := NewSkillsLoader(workspace, builtin)
+
+	skills, err := loader.ListSkills(false)
+	if err != nil {
+		t.Fatalf("ListSkills() error: %v", err)
+	}
+
+	skill, ok := findSkill(skills, "go-skill")
+	if !ok {
+		t.Fatal("expected to find go-skill")
+	}
+	if !skill.Available {
+		t.Fatalf("skill.Available = false, want true (go should be in PATH)")
+	}
+	if len(skill.Missing) != 0 {
+		t.Fatalf("skill.Missing = %v, want empty", skill.Missing)
+	}
+}

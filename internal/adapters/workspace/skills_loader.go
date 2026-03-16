@@ -75,7 +75,6 @@ func NewSkillsLoader(workspace string, builtinDir string) *SkillsLoader {
 }
 
 // ListSkills lists all available skills, optionally filtering out unavailable ones.
-// TODO: Check skill availability based on metadata or other criteria.
 func (l *SkillsLoader) ListSkills(filterUnavailable bool) ([]SkillInfo, error) {
 	skills := make([]SkillInfo, 0, 5)
 	seen := make(map[string]struct{})
@@ -108,7 +107,6 @@ func (l *SkillsLoader) ListSkills(filterUnavailable bool) ([]SkillInfo, error) {
 			}
 			skillInfo.Source = "workspace"
 			skillInfo.Path = skillFile
-			skillInfo.Available = true // TODO: determine availability based on metadata or other criteria
 			skills = append(skills, skillInfo)
 
 			seen[skillDir.Name()] = struct{}{}
@@ -140,7 +138,6 @@ func (l *SkillsLoader) ListSkills(filterUnavailable bool) ([]SkillInfo, error) {
 			}
 			skillInfo.Source = "builtin"
 			skillInfo.Path = skillFile
-			skillInfo.Available = true // TODO: determine availability based on metadata or other criteria
 			skills = append(skills, skillInfo)
 			seen[skillDir.Name()] = struct{}{}
 		}
