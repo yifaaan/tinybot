@@ -34,7 +34,8 @@ type ConsoleChannel struct {
 	input  io.Reader
 	output io.Writer
 
-	outMu sync.Mutex
+	keepAliveOnEOF bool
+	outMu          sync.Mutex
 }
 
 // NewConsoleChannel creates a console-backed channel with default IDs and prompt text.
@@ -55,10 +56,11 @@ func NewConsoleChannel(bus transport.MessageBus, cfg ConsoleChannelConfig, input
 		output = os.Stdout
 	}
 	return &ConsoleChannel{
-		bus:    bus,
-		cfg:    cfg,
-		input:  input,
-		output: output,
+		bus:            bus,
+		cfg:            cfg,
+		input:          input,
+		output:         output,
+		keepAliveOnEOF: shouldKeepAliveOnEOF(input),
 	}
 }
 
@@ -70,21 +72,30 @@ func (c *ConsoleChannel) Name() model.Channel {
 // Start reads console input until EOF, context cancellation, or a bus error.
 // 把终端输入变成 inbound，然后写进 bus
 func (c *ConsoleChannel) Start(ctx context.Context) error {
-	lines := make(chan string)
-	errCh := make(chan error, 1)
+	type scanEvent struct {
+		line string
+		done bool
+		err  error
+	}
+
+	events := make(chan scanEvent)
 
 	go func() {
-		defer close(lines)
+		defer close(events)
 
 		scanner := bufio.NewScanner(c.input)
 		for scanner.Scan() {
 			select {
-			case lines <- scanner.Text():
+			case events <- scanEvent{line: scanner.Text()}:
 			case <-ctx.Done():
 				return
 			}
 		}
-		errCh <- scanner.Err()
+
+		select {
+		case events <- scanEvent{done: true, err: scanner.Err()}:
+		case <-ctx.Done():
+		}
 	}()
 
 	if err := c.writePrompt(); err != nil {
@@ -95,16 +106,21 @@ func (c *ConsoleChannel) Start(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
-		case err := <-errCh:
-			if err != nil {
-				return fmt.Errorf("console channel scan: %w", err)
-			}
-			return nil
-		case line, ok := <-lines:
+		case event, ok := <-events:
 			if !ok {
 				return nil
 			}
+			if event.done {
+				if event.err != nil {
+					return fmt.Errorf("console channel scan: %w", event.err)
+				}
+				if c.keepAliveOnEOF {
+					<-ctx.Done()
+				}
+				return nil
+			}
 
+			line := event.line
 			line = strings.TrimSpace(line)
 			if line == "" {
 				if err := c.writePrompt(); err != nil {
@@ -130,6 +146,20 @@ func (c *ConsoleChannel) Start(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+func shouldKeepAliveOnEOF(input io.Reader) bool {
+	file, ok := input.(*os.File)
+	if !ok {
+		return false
+	}
+
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 // Send writes one outbound reply to the console.

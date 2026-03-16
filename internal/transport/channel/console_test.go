@@ -139,3 +139,60 @@ func TestConsoleChannel_Send_StreamedMessageWritesPromptOnly(t *testing.T) {
 		t.Fatalf("output missing trailing newline and prompt: %q", text)
 	}
 }
+
+func TestConsoleChannel_Start_EOFOnReaderReturnsNilAfterPrompt(t *testing.T) {
+	t.Parallel()
+
+	b := transportbus.NewMemoryBus(1)
+	var output bytes.Buffer
+	channel := NewConsoleChannel(b, ConsoleChannelConfig{
+		Prompt: "You>",
+	}, strings.NewReader(""), &output)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	defer b.Close()
+
+	if err := channel.Start(ctx); err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+	if output.String() != "You> " {
+		t.Fatalf("prompt output = %q, want %q", output.String(), "You> ")
+	}
+}
+
+func TestConsoleChannel_Start_KeepAliveOnEOFWaitsForCancel(t *testing.T) {
+	t.Parallel()
+
+	b := transportbus.NewMemoryBus(1)
+	var output bytes.Buffer
+	channel := NewConsoleChannel(b, ConsoleChannelConfig{
+		Prompt: "You>",
+	}, strings.NewReader(""), &output)
+	channel.keepAliveOnEOF = true
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer b.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- channel.Start(ctx)
+	}()
+
+	select {
+	case err := <-done:
+		t.Fatalf("Start() returned before cancel: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Start() error after cancel: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start() did not exit after cancel")
+	}
+}
