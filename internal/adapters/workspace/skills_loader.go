@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -213,6 +214,8 @@ func (l *SkillsLoader) buildSkillInfo(name string) (SkillInfo, error) {
 		Name:        skillMeta.Name,
 		Description: skillMeta.Description,
 		Always:      skillMeta.Always,
+		RequiresEnv: skillMeta.RequiresEnv,
+		RequiresBin: skillMeta.RequiresBin,
 	}
 	skillInfo.Available = l.checkRequirements(&skillInfo)
 	return skillInfo, nil
@@ -232,9 +235,20 @@ func (l *SkillsLoader) GetAlwaysSkills() ([]string, error) {
 	return alwaysSkills, nil
 }
 
-func (l *SkillsLoader) checkRequirements(_ *SkillInfo) bool {
-	// TODO: check environment variables and binaries for skill availability
-	return true
+func (l *SkillsLoader) checkRequirements(skill *SkillInfo) bool {
+	skill.Missing = nil
+
+	for _, env := range skill.RequiresEnv {
+		if os.Getenv(env) == "" {
+			skill.Missing = append(skill.Missing, fmt.Sprintf("env:%s", env))
+		}
+	}
+	for _, bin := range skill.RequiresBin {
+		if _, err := exec.LookPath(bin); err != nil {
+			skill.Missing = append(skill.Missing, fmt.Sprintf("bin:%s", bin))
+		}
+	}
+	return len(skill.Missing) == 0
 }
 
 func (l *SkillsLoader) getSkillMetadata(name string) (SkillInfo, error) {
@@ -317,6 +331,8 @@ func (l *SkillsLoader) buildSkillInfoFromLocation(loc SkillLocation) (SkillInfo,
 		Path:        loc.Path,
 		Source:      loc.Source,
 		MetadataRaw: "", // TODO: 以后如果需要保�?raw metadata，再补充这个字段
+		RequiresEnv: skillMeta.RequiresEnv,
+		RequiresBin: skillMeta.RequiresBin,
 	}
 	info.Available = l.checkRequirements(&info)
 

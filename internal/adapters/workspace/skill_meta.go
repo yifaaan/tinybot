@@ -9,7 +9,9 @@ import (
 type SkillMetadata struct {
 	Name        string
 	Description string
-	Always      bool // if true, always load full content in context; otherwise use progressive loading
+	Always      bool     // if true, always load full content in context; otherwise use progressive loading
+	RequiresEnv []string // required environment variables, e.g. ["OPENAI_API_KEY"]
+	RequiresBin []string // required external binaries, e.g. ["ffmpeg"]
 }
 
 func ParseSkillMetadata(content string, fallbackName string) (SkillMetadata, error) {
@@ -40,6 +42,8 @@ func ParseSkillMetadata(content string, fallbackName string) (SkillMetadata, err
 	}
 	meta.Description = parsed.Description
 	meta.Always = parsed.Always
+	meta.RequiresEnv = parsed.RequiresEnv
+	meta.RequiresBin = parsed.RequiresBin
 	return meta, nil
 }
 
@@ -82,7 +86,25 @@ func parseFrontMatter(frontMatter string) (SkillMetadata, error) {
 					if always, ok := openclawMeta["always"].(bool); ok && always {
 						skillMeta.Always = true
 					}
+
+					if requires, ok := openclawMeta["requires"].(map[string]any); ok {
+						if bins, ok := requires["bins"].([]any); ok {
+							for _, b := range bins {
+								if s, ok := b.(string); ok {
+									skillMeta.RequiresBin = append(skillMeta.RequiresBin, s)
+								}
+							}
+						}
+						if env, ok := requires["env"].([]any); ok {
+							for _, e := range env {
+								if s, ok := e.(string); ok {
+									skillMeta.RequiresEnv = append(skillMeta.RequiresEnv, s)
+								}
+							}
+						}
+					}
 				}
+
 			}
 		}
 	}
