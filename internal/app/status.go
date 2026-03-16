@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	ws "tinybot/internal/adapters/workspace"
 )
 
 type Status struct {
@@ -14,6 +15,13 @@ type Status struct {
 	HeartbeatFileExists bool
 	BootstrapFiles      map[string]bool
 	MissingFiles        []string
+	Skills              []SkillInfo
+}
+
+type SkillInfo struct {
+	Name      string
+	Available bool
+	Missing   []string // if not available, list missing requirements
 }
 
 func CheckStatus(workspace string) Status {
@@ -45,6 +53,20 @@ func CheckStatus(workspace string) Status {
 	if !status.MemoryFileExists {
 		status.MissingFiles = append(status.MissingFiles, filepath.Join("memory", "MEMORY.md"))
 	}
+
+	loader := ws.NewSkillsLoader(workspace, "")
+	skills, err := loader.ListSkills(false)
+	if err == nil {
+		status.Skills = make([]SkillInfo, len(skills))
+		for i, s := range skills {
+			status.Skills[i] = SkillInfo{
+				Name:      s.Name,
+				Available: s.Available,
+				Missing:   s.Missing,
+			}
+		}
+	}
+
 	return status
 }
 

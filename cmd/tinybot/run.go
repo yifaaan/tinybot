@@ -106,6 +106,19 @@ func runStatus(out io.Writer, workspace string) error {
 		}
 	}
 
+	// Show skills availability
+	if len(status.Skills) > 0 {
+		_, _ = fmt.Fprintln(out, "Skills:")
+		for _, skill := range status.Skills {
+			if skill.Available {
+				_, _ = fmt.Fprintf(out, "  ✓ %s\n", skill.Name)
+			} else {
+				missing := strings.Join(skill.Missing, ", ")
+				_, _ = fmt.Fprintf(out, "  ✗ %s (missing: %s)\n", skill.Name, missing)
+			}
+		}
+	}
+
 	return nil
 }
 

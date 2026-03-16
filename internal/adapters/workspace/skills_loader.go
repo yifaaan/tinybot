@@ -27,7 +27,9 @@ var BuiltinSkillsDir = func() string {
 	if !ok {
 		panic("cannot get current file")
 	}
-	return filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))), "skills")
+	// skills_loader.go is at: internal/adapters/workspace/skills_loader.go
+	// We need to go up 4 levels to reach project root, then into skills/
+	return filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file)))), "skills")
 }()
 
 var xmlEscaper = strings.NewReplacer(
