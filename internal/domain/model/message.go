@@ -37,7 +37,7 @@ type Channel string
 const (
 	ChannelCLI       Channel = "cli"
 	ChannelTelegram  Channel = "telegram"
-	ChannelWhatsApp  Channel = "whatsapp"
+	ChannelQQ        Channel = "qq"
 	ChannelCron      Channel = "cron"
 	ChannelHeartbeat Channel = "heartbeat"
 )

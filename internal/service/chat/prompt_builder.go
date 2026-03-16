@@ -293,7 +293,7 @@ Your workspace is at: {workspace_path}
 - Custom skills: {workspace_path}/skills/{skill-name}/SKILL.md
 
 IMPORTANT: When responding to direct questions or conversations, reply directly with your text response.
-Only use the 'message' tool when you need to send a message to a specific chat channel (like WhatsApp).
+Only use the 'message' tool when you need to send a message to a specific chat channel (like QQ).
 For normal conversation, just respond with text - do not call the message tool.
 
 Always be helpful, accurate, and concise. When using tools, explain what you are doing.
