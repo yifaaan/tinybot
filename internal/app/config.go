@@ -184,7 +184,7 @@ func DefaultConfig() *Config {
 		Tools: ToolsConfig{
 			WebSearch: WebSearchConfig{MaxResult: 10},
 			WebFetch:  WebFetchConfig{MaxChars: 50000},
-			Exec:      ExecConfig{TimeoutSeconds: 10},
+			Exec:      ExecConfig{TimeoutSeconds: 30},
 		},
 		Heartbeat: HeartbeatConfig{
 			Enabled:         true,

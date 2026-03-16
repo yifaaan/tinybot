@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"tinybot/internal/utils/logger"
 )
 
 // ExecTool is tool to execute shell commands.
@@ -60,11 +62,21 @@ func (t *ExecTool) Execute(ctx context.Context, params map[string]any) (string, 
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
+		// On Windows, use cmd.exe
+		// Replace 'curl' with 'curl.exe' to avoid PowerShell alias
+		command = strings.ReplaceAll(command, "curl ", "curl.exe ")
+		// Remove unnecessary quotes around URLs (cmd.exe doesn't handle them well)
+		command = strings.ReplaceAll(command, `curl.exe -s "`, "curl.exe -s ")
+		command = strings.ReplaceAll(command, `curl.exe "`, "curl.exe ")
+		command = strings.ReplaceAll(command, `" 2>&1`, " 2>&1")
+		command = strings.TrimSuffix(command, `"`)
 		cmd = exec.CommandContext(ctx, "cmd", "/c", command)
 	} else {
 		cmd = exec.CommandContext(ctx, "sh", "-c", command)
 	}
 	cmd.Dir = workingDir
+
+	logger.Info("exec tool running", "command", command)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
