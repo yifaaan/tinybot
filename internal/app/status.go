@@ -34,7 +34,7 @@ func CheckStatus(workspace string) Status {
 	}
 
 	status.WorkspaceExists = dirExists(workspace)
-	status.ConfigExists = fileExists(getConfigPath(workspace))
+	status.ConfigExists = fileExists(getConfigPath())
 	status.MemoryFileExists = fileExists(filepath.Join(workspace, "memory", "MEMORY.md"))
 	status.SkillsDirExists = dirExists(filepath.Join(workspace, "skills"))
 	status.HeartbeatFileExists = fileExists(filepath.Join(workspace, "HEARTBEAT.md"))
@@ -48,7 +48,7 @@ func CheckStatus(workspace string) Status {
 	}
 
 	if !status.ConfigExists {
-		status.MissingFiles = append(status.MissingFiles, filepath.Base(getConfigPath(workspace)))
+		status.MissingFiles = append(status.MissingFiles, filepath.Base(getConfigPath()))
 	}
 	if !status.MemoryFileExists {
 		status.MissingFiles = append(status.MissingFiles, filepath.Join("memory", "MEMORY.md"))

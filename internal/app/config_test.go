@@ -40,13 +40,11 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestLoadConfig_OverridesHeartbeatFromFile(t *testing.T) {
-	t.Parallel()
-
-	workspace := t.TempDir()
-	configPath := filepath.Join(workspace, "config.json")
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
 	configJSON := `{
   "agents": {
-    "workspace": ".tinybot/workspace",
+    "workspace": "./workspace",
     "max_tokens": 8192,
     "temperature": 0.7,
     "max_tool_iterations": 20
@@ -72,9 +70,11 @@ func TestLoadConfig_OverridesHeartbeatFromFile(t *testing.T) {
 		t.Fatalf("WriteFile(config.json) failed: %v", err)
 	}
 
-	cfg, err := LoadConfig(workspace)
+	t.Setenv("TINYBOT_CONFIG", configPath)
+
+	cfg, err := LoadConfig("")
 	if err != nil {
-		t.Fatalf("LoadConfig(%q) failed: %v", workspace, err)
+		t.Fatalf("LoadConfig() failed: %v", err)
 	}
 
 	if !cfg.Heartbeat.Enabled {
@@ -86,10 +86,8 @@ func TestLoadConfig_OverridesHeartbeatFromFile(t *testing.T) {
 }
 
 func TestLoadConfig_OverridesLogFromFile(t *testing.T) {
-	t.Parallel()
-
-	workspace := t.TempDir()
-	configPath := filepath.Join(workspace, "config.json")
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
 	configJSON := `{
   "log": {
     "level": "debug",
@@ -102,9 +100,11 @@ func TestLoadConfig_OverridesLogFromFile(t *testing.T) {
 		t.Fatalf("WriteFile(config.json) failed: %v", err)
 	}
 
-	cfg, err := LoadConfig(workspace)
+	t.Setenv("TINYBOT_CONFIG", configPath)
+
+	cfg, err := LoadConfig("")
 	if err != nil {
-		t.Fatalf("LoadConfig(%q) failed: %v", workspace, err)
+		t.Fatalf("LoadConfig() failed: %v", err)
 	}
 
 	if cfg.Log.Level != "debug" {
@@ -119,10 +119,8 @@ func TestLoadConfig_OverridesLogFromFile(t *testing.T) {
 }
 
 func TestLoadConfig_PartialLogOverrideKeepsDefaultLevelAndFormat(t *testing.T) {
-	t.Parallel()
-
-	workspace := t.TempDir()
-	configPath := filepath.Join(workspace, "config.json")
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
 	configJSON := `{
   "log": {
     "output": "custom.log"
@@ -133,9 +131,11 @@ func TestLoadConfig_PartialLogOverrideKeepsDefaultLevelAndFormat(t *testing.T) {
 		t.Fatalf("WriteFile(config.json) failed: %v", err)
 	}
 
-	cfg, err := LoadConfig(workspace)
+	t.Setenv("TINYBOT_CONFIG", configPath)
+
+	cfg, err := LoadConfig("")
 	if err != nil {
-		t.Fatalf("LoadConfig(%q) failed: %v", workspace, err)
+		t.Fatalf("LoadConfig() failed: %v", err)
 	}
 
 	// JSON 只覆盖 output 时，其它字段应继续沿用 DefaultConfig() 的默认值，
@@ -152,21 +152,23 @@ func TestLoadConfig_PartialLogOverrideKeepsDefaultLevelAndFormat(t *testing.T) {
 }
 
 func TestSaveConfig_PreservesLogConfigRoundTrip(t *testing.T) {
-	t.Parallel()
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
 
-	workspace := t.TempDir()
+	t.Setenv("TINYBOT_CONFIG", configPath)
+
 	cfg := DefaultConfig()
 	cfg.Log.Level = "debug"
 	cfg.Log.Format = "json"
 	cfg.Log.Output = "roundtrip.log"
 
-	if err := SaveConfig(cfg, workspace); err != nil {
+	if err := SaveConfig(cfg); err != nil {
 		t.Fatalf("SaveConfig() error: %v", err)
 	}
 
-	loaded, err := LoadConfig(workspace)
+	loaded, err := LoadConfig("")
 	if err != nil {
-		t.Fatalf("LoadConfig(%q) failed: %v", workspace, err)
+		t.Fatalf("LoadConfig() failed: %v", err)
 	}
 
 	// SaveConfig 写出的 JSON 再被 LoadConfig 读回后，

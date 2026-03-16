@@ -75,13 +75,13 @@ func OnBoard(ctx context.Context, workspace string) (*OnBoardResult, error) {
 		result.CreatedFiles = append(result.CreatedFiles, "HEARTBEAT.md")
 	}
 
-	configPath := getConfigPath(workspace)
+	configPath := getConfigPath()
 	if !fileExists(configPath) {
 		cfg := DefaultConfig()
 		cfg.Agents.Workspace = workspace
 
 		// TODO: when we support multiple providers, choose defaults here more carefully.
-		if err := SaveConfig(cfg, workspace); err != nil {
+		if err := SaveConfig(cfg); err != nil {
 			return nil, fmt.Errorf("onboard config: %w", err)
 		}
 		result.CreatedFiles = append(result.CreatedFiles, filepath.Base(configPath))

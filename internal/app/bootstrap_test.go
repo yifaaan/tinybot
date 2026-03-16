@@ -56,9 +56,9 @@ func TestBuildCoreToolRegistry_DefinitionsDoNotExposeMessageTool(t *testing.T) {
 func TestNewApp_InvalidLogOutputReturnsInitializeLoggerError(t *testing.T) {
 	stubBootstrapDeps(t, logger.Init)
 
-	workspace := t.TempDir()
-	configPath := filepath.Join(workspace, "config.json")
-	invalidLogOutput := filepath.Join(workspace, "missing", "logs", "tinybot.log")
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+	invalidLogOutput := filepath.Join(tmpDir, "missing", "logs", "tinybot.log")
 	configJSON := fmt.Sprintf(`{
   "log": {
     "output": %q
@@ -69,7 +69,9 @@ func TestNewApp_InvalidLogOutputReturnsInitializeLoggerError(t *testing.T) {
 		t.Fatalf("WriteFile(config.json) failed: %v", err)
 	}
 
-	_, err := NewApp(workspace)
+	t.Setenv("TINYBOT_CONFIG", configPath)
+
+	_, err := NewApp("")
 	if err == nil {
 		t.Fatal("expected NewApp() error, got nil")
 	}
@@ -85,9 +87,9 @@ func TestNewApp_StdoutLogOutputInitializesSuccessfully(t *testing.T) {
 		return nil
 	})
 
-	workspace := t.TempDir()
-	configPath := filepath.Join(workspace, "config.json")
-	configJSON := fmt.Sprintf(`{
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+	configJSON := `{
   "providers": {
     "active": "qwen",
     "list": {
@@ -104,13 +106,15 @@ func TestNewApp_StdoutLogOutputInitializesSuccessfully(t *testing.T) {
     "format": "text",
     "output": "stdout"
   }
-}`)
+}`
 
 	if err := os.WriteFile(configPath, []byte(configJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile(config.json) failed: %v", err)
 	}
 
-	app, err := NewApp(workspace)
+	t.Setenv("TINYBOT_CONFIG", configPath)
+
+	app, err := NewApp("")
 	if err != nil {
 		t.Fatalf("NewApp() error: %v", err)
 	}

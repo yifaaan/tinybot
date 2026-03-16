@@ -7,7 +7,7 @@ import (
 
 func TestDefaultWorkspacePath(t *testing.T) {
 	got := DefaultWorkspacePath()
-	want := filepath.Join(".tinybot", "workspace")
+	want := filepath.Join(".", "workspace")
 
 	if got != want {
 		t.Fatalf("DefaultWorkspacePath() = %q, want %q", got, want)

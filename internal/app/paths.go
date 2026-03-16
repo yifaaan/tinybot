@@ -6,18 +6,14 @@ import (
 )
 
 const (
-	// defaultWorkspaceRootDir keeps the MVP workspace inside the current project.
-	//
-	// For this rewrite phase, a project-local workspace is easier to inspect and reason about
-	// than a hidden directory in the user's home folder. The important part is not the exact
-	// location, but that every caller uses the same default.
-	defaultWorkspaceRootDir = "./.tinybot"
-	defaultWorkspaceDirName = "workspace"
+	// defaultWorkspaceDir is the default workspace directory name.
+	// Workspace is located at ./workspace in the project root.
+	defaultWorkspaceDir = "workspace"
 )
 
 // DefaultWorkspacePath returns the single source of truth for the app's default workspace.
 func DefaultWorkspacePath() string {
-	return filepath.Join(defaultWorkspaceRootDir, defaultWorkspaceDirName)
+	return filepath.Join(".", defaultWorkspaceDir)
 }
 
 // ResolveWorkspacePath normalizes optional caller input.

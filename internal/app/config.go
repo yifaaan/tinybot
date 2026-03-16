@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"tinybot/internal/utils"
 	"tinybot/internal/utils/logger"
 )
@@ -265,7 +264,7 @@ func LoadConfig(workspace string) (*Config, error) {
 	workspace = ResolveWorkspacePath(workspace)
 	cfg := DefaultConfig()
 
-	cfgPath := getConfigPath(workspace)
+	cfgPath := getConfigPath()
 	_, err := os.Stat(cfgPath)
 	if err != nil {
 		cfg.ApplyEnvOverrides()
@@ -281,35 +280,36 @@ func LoadConfig(workspace string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	// Ensure workspace is set if empty in config
+	if cfg.Agents.Workspace == "" {
+		cfg.Agents.Workspace = DefaultWorkspacePath()
+	}
+
 	cfg.ApplyEnvOverrides()
 
 	return cfg, nil
 }
 
-func SaveConfig(cfg *Config, workspace string) error {
+func SaveConfig(cfg *Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
-	workspace = ResolveWorkspacePath(workspace)
 
-	cfgPath := getConfigPath(workspace)
+	cfgPath := getConfigPath()
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-	parent, err := utils.ExpandUser(workspace)
-	if err != nil {
-		return fmt.Errorf("failed to expand workspace path: %w", err)
-	}
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return fmt.Errorf("failed to create workspace directory: %w", err)
-	}
 	return os.WriteFile(cfgPath, data, 0o644)
 }
 
-func getConfigPath(workspace string) string {
-	workspace = ResolveWorkspacePath(workspace)
-	return filepath.Join(workspace, "config.json")
+// getConfigPath returns the path to config.json.
+// Priority: TINYBOT_CONFIG env var > ./config.json (project root)
+func getConfigPath() string {
+	if path := os.Getenv("TINYBOT_CONFIG"); path != "" {
+		return path
+	}
+	return "./config.json"
 }
 
 // RetryConfig 控制 LLM 调用的重试行为

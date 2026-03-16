@@ -8,7 +8,12 @@ import (
 )
 
 func TestOnBoard_CreatesMinimumWorkspace(t *testing.T) {
-	workspace := filepath.Join(t.TempDir(), "workspace")
+	// Setup: use a temp config path to avoid conflicts
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+	t.Setenv("TINYBOT_CONFIG", configPath)
+
+	workspace := filepath.Join(tmpDir, "workspace")
 
 	result, err := OnBoard(context.Background(), workspace)
 	if err != nil {
@@ -21,22 +26,26 @@ func TestOnBoard_CreatesMinimumWorkspace(t *testing.T) {
 		t.Fatalf("result.Workspace = %q, want %q", result.Workspace, workspace)
 	}
 
-	expectedFiles := []string{
+	expectedWorkspaceFiles := []string{
 		"AGENTS.md",
 		"SOUL.md",
 		"USER.md",
 		"TOOLS.md",
 		filepath.Join("memory", "MEMORY.md"),
-		"config.json",
 	}
 
-	for _, rel := range expectedFiles {
+	for _, rel := range expectedWorkspaceFiles {
 		if !containsString(result.CreatedFiles, rel) {
 			t.Fatalf("CreatedFiles missing %q: %#v", rel, result.CreatedFiles)
 		}
 		if !fileExists(filepath.Join(workspace, rel)) {
 			t.Fatalf("expected file to exist: %s", filepath.Join(workspace, rel))
 		}
+	}
+
+	// config.json should be created at the configured path (project root)
+	if !fileExists(configPath) {
+		t.Fatalf("expected config.json to exist at %s", configPath)
 	}
 
 	if !dirExists(filepath.Join(workspace, "skills")) {
@@ -62,7 +71,11 @@ func TestOnBoard_CreatesMinimumWorkspace(t *testing.T) {
 }
 
 func TestOnBoard_DoesNotOverwriteExistingFiles(t *testing.T) {
-	workspace := filepath.Join(t.TempDir(), "workspace")
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+	t.Setenv("TINYBOT_CONFIG", configPath)
+
+	workspace := filepath.Join(tmpDir, "workspace")
 
 	if _, err := OnBoard(context.Background(), workspace); err != nil {
 		t.Fatalf("first OnBoard() error: %v", err)
@@ -92,7 +105,11 @@ func TestOnBoard_DoesNotOverwriteExistingFiles(t *testing.T) {
 }
 
 func TestCheckStatus_ReportsMissingFiles(t *testing.T) {
-	workspace := filepath.Join(t.TempDir(), "workspace")
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+	t.Setenv("TINYBOT_CONFIG", configPath)
+
+	workspace := filepath.Join(tmpDir, "workspace")
 	if err := os.MkdirAll(filepath.Join(workspace, "memory"), 0o755); err != nil {
 		t.Fatalf("MkdirAll() error: %v", err)
 	}

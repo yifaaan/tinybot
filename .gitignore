@@ -1,11 +1,7 @@
 .venv/
-nanobot/
 specs.md
 .env
-sessions/
-NANOBOT_DESIGN_SPEC.md
 test.md
-.tinybot
 .cache
 .planning
 .claude

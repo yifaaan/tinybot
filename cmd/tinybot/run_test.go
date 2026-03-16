@@ -62,9 +62,12 @@ func (f *fakeDirectStreamingProcessor) ProcessMessageStream(ctx context.Context,
 }
 
 func TestRun_NoArgs_PrintsHelp(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("TINYBOT_CONFIG", filepath.Join(tmpDir, "config.json"))
+
 	var out bytes.Buffer
 
-	if err := run(nil, &out, filepath.Join(t.TempDir(), "workspace")); err != nil {
+	if err := run(nil, &out, filepath.Join(tmpDir, "workspace")); err != nil {
 		t.Fatalf("run() error: %v", err)
 	}
 
@@ -81,7 +84,10 @@ func TestRun_NoArgs_PrintsHelp(t *testing.T) {
 }
 
 func TestRun_Onboard_CreatesWorkspace(t *testing.T) {
-	workspace := filepath.Join(t.TempDir(), "workspace")
+	tmpDir := t.TempDir()
+	t.Setenv("TINYBOT_CONFIG", filepath.Join(tmpDir, "config.json"))
+
+	workspace := filepath.Join(tmpDir, "workspace")
 	var out bytes.Buffer
 
 	if err := run([]string{"onboard"}, &out, workspace); err != nil {
@@ -98,7 +104,12 @@ func TestRun_Onboard_CreatesWorkspace(t *testing.T) {
 }
 
 func TestRun_Status_ShowsMissingFilesBeforeOnboard(t *testing.T) {
-	workspace := filepath.Join(t.TempDir(), "workspace")
+	// Set config path to a non-existent file in temp dir
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+	t.Setenv("TINYBOT_CONFIG", configPath)
+
+	workspace := filepath.Join(tmpDir, "workspace")
 	var out bytes.Buffer
 
 	if err := run([]string{"status"}, &out, workspace); err != nil {
@@ -121,7 +132,10 @@ func TestRun_Status_ShowsMissingFilesBeforeOnboard(t *testing.T) {
 }
 
 func TestRun_DirectChat_UsesChatService(t *testing.T) {
-	workspace := filepath.Join(t.TempDir(), "workspace")
+	tmpDir := t.TempDir()
+	t.Setenv("TINYBOT_CONFIG", filepath.Join(tmpDir, "config.json"))
+
+	workspace := filepath.Join(tmpDir, "workspace")
 	var out bytes.Buffer
 	processor := &fakeDirectChatProcessor{reply: "pong"}
 
@@ -148,7 +162,10 @@ func TestRun_DirectChat_UsesChatService(t *testing.T) {
 }
 
 func TestRun_DirectChat_UsesStreamingProcessor(t *testing.T) {
-	workspace := filepath.Join(t.TempDir(), "workspace")
+	tmpDir := t.TempDir()
+	t.Setenv("TINYBOT_CONFIG", filepath.Join(tmpDir, "config.json"))
+
+	workspace := filepath.Join(tmpDir, "workspace")
 	var out bytes.Buffer
 	processor := &fakeDirectStreamingProcessor{
 		streamDeltas: []string{"pon", "g"},
@@ -199,6 +216,9 @@ func TestRun_DirectChat_UsesStreamingProcessor(t *testing.T) {
 }
 
 func TestRun_DirectChat_WrapsProcessorError(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("TINYBOT_CONFIG", filepath.Join(tmpDir, "config.json"))
+
 	var out bytes.Buffer
 	processor := &fakeDirectChatProcessor{err: errors.New("boom")}
 
@@ -210,7 +230,7 @@ func TestRun_DirectChat_WrapsProcessorError(t *testing.T) {
 		newDirectChatProcessor = oldFactory
 	}()
 
-	err := run([]string{"ping"}, &out, filepath.Join(t.TempDir(), "workspace"))
+	err := run([]string{"ping"}, &out, filepath.Join(tmpDir, "workspace"))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -220,7 +240,10 @@ func TestRun_DirectChat_WrapsProcessorError(t *testing.T) {
 }
 
 func TestRun_CronList_Empty(t *testing.T) {
-	workspace := filepath.Join(t.TempDir(), "workspace")
+	tmpDir := t.TempDir()
+	t.Setenv("TINYBOT_CONFIG", filepath.Join(tmpDir, "config.json"))
+
+	workspace := filepath.Join(tmpDir, "workspace")
 	var out bytes.Buffer
 	if err := run([]string{"cron", "list"}, &out, workspace); err != nil {
 		t.Fatalf("run(cron list) error: %v", err)
@@ -230,7 +253,10 @@ func TestRun_CronList_Empty(t *testing.T) {
 	}
 }
 func TestRun_CronAdd_ThenList(t *testing.T) {
-	workspace := filepath.Join(t.TempDir(), "workspace")
+	tmpDir := t.TempDir()
+	t.Setenv("TINYBOT_CONFIG", filepath.Join(tmpDir, "config.json"))
+
+	workspace := filepath.Join(tmpDir, "workspace")
 	var out bytes.Buffer
 	if err := run([]string{"cron", "add", "daily", "60", "check status"}, &out, workspace); err != nil {
 		t.Fatalf("run(cron add) error: %v", err)
@@ -245,7 +271,10 @@ func TestRun_CronAdd_ThenList(t *testing.T) {
 	}
 }
 func TestRun_CronAdd_InvalidArgs(t *testing.T) {
-	workspace := filepath.Join(t.TempDir(), "workspace")
+	tmpDir := t.TempDir()
+	t.Setenv("TINYBOT_CONFIG", filepath.Join(tmpDir, "config.json"))
+
+	workspace := filepath.Join(tmpDir, "workspace")
 	var out bytes.Buffer
 	err := run([]string{"cron", "add", "daily"}, &out, workspace)
 	if err == nil {
@@ -254,7 +283,10 @@ func TestRun_CronAdd_InvalidArgs(t *testing.T) {
 }
 
 func TestRun_CronAddAt_ThenList(t *testing.T) {
-	workspace := filepath.Join(t.TempDir(), "workspace")
+	tmpDir := t.TempDir()
+	t.Setenv("TINYBOT_CONFIG", filepath.Join(tmpDir, "config.json"))
+
+	workspace := filepath.Join(tmpDir, "workspace")
 	var out bytes.Buffer
 
 	at := time.Now().Add(1 * time.Hour).UTC().Format(time.RFC3339)

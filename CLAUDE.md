@@ -160,7 +160,7 @@ When conversation history exceeds `token_limit`, old messages are summarized by 
 
 - Config file: `{workspace}/config.json`
 - Environment overrides: `QWEN_API_KEY`, `QWEN_API_BASE`, `QWEN_MODEL`
-- Default workspace: `.tinybot/workspace` (relative to working directory)
+- Default workspace: `./workspace` (relative to working directory)
 
 ### Key Config Fields
 
