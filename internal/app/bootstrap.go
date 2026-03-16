@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"tinybot/internal/adapters/provider"
 	"tinybot/internal/adapters/tool"
@@ -101,7 +102,6 @@ func newLLMClientFromConfig(cfg *Config) (chatservice.CompletionClient, error) {
 	name, entry, err := cfg.ActiveProvider()
 	if err != nil {
 		return nil, fmt.Errorf("resolve provider: %w", err)
-
 	}
 	apiKey := strings.TrimSpace(entry.ApiKey)
 	apiBase := strings.TrimSpace(entry.ApiBase)
@@ -114,13 +114,26 @@ func newLLMClientFromConfig(cfg *Config) (chatservice.CompletionClient, error) {
 		return nil, fmt.Errorf("provider %q: api base is required", name)
 	}
 
-	registry := provider.DefaultRegistry()
-	return registry.Create(
-		entry.Kind,
-		apiKey,
-		apiBase,
-		model,
-	)
+	reg := provider.DefaultRegistry()
+	client, err := reg.Create(entry.Kind, apiKey, apiBase, model)
+	if err != nil {
+		return nil, err
+	}
+
+	// 在真实 provider 外层包装重试装饰器。
+	// 为什么在组合根做这件事，而不是在 provider 内部：
+	// - 重试是运维策略，provider 只负责"发一次请求"
+	// - 组合根决定是否启用以及参数，保持 provider 的纯粹性
+	if cfg.Agents.Retry.Enabled {
+		client = provider.NewRetryClient(
+			client,
+			cfg.Agents.Retry.MaxRetries,
+			time.Duration(cfg.Agents.Retry.InitialDelayMs)*time.Millisecond,
+			time.Duration(cfg.Agents.Retry.MaxDelayMs)*time.Millisecond,
+		)
+	}
+
+	return client, nil
 }
 
 func buildCoreToolRegistry(workspace string, cfg *Config) *tool.Registry {

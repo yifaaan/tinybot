@@ -24,6 +24,7 @@ type AgentsConfig struct {
 	Temperature       float64             `json:"temperature"`
 	MaxToolIterations int                 `json:"max_tool_iterations"`
 	Consolidation     ConsolidationConfig `json:"consolidation,omitempty"`
+	Retry             RetryConfig         `json:"retry,omitempty"`
 }
 
 // ConsolidationConfig 控制会话历史压缩行为
@@ -132,6 +133,12 @@ func DefaultConfig() *Config {
 				Enabled:    true,
 				TokenLimit: 60000,
 				KeepRecent: 10,
+			},
+			Retry: RetryConfig{
+				Enabled:        true,
+				MaxRetries:     3,
+				InitialDelayMs: 1000,
+				MaxDelayMs:     30000,
 			},
 		},
 		Channels: ChannelsConfig{
@@ -301,4 +308,20 @@ func SaveConfig(cfg *Config, workspace string) error {
 func getConfigPath(workspace string) string {
 	workspace = ResolveWorkspacePath(workspace)
 	return filepath.Join(workspace, "config.json")
+}
+
+// RetryConfig 控制 LLM 调用的重试行为
+type RetryConfig struct {
+	// Enabled 是否启用重试，默认 true
+	Enabled bool `json:"enabled"`
+
+	// MaxRetries 最大重试次数（不含首次调用），默认 3
+	MaxRetries int `json:"max_retries"`
+
+	// InitialDelayMs 首次重试的等待时间，默认 1000ms
+	// 后续重试按指数增长：1s, 2s, 4s, 8s, ...
+	InitialDelayMs int `json:"initial_delay_ms"`
+
+	// MaxDelayMs 最大重试等待时间，默认 30000ms
+	MaxDelayMs int `json:"max_delay_ms"`
 }
