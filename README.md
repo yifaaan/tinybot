@@ -1,99 +1,134 @@
 # tinybot
 
-一个轻量级的 AI 助手，使用 Go 语言重写。
+tinybot is a lightweight personal AI assistant written in Go. It combines LLM chat, tool execution, scheduled tasks, persistent memory, multi-channel messaging, and a desktop client with a Cherry Studio-inspired interface.
 
-**tinybot** 是一个超轻量级的个人 AI 助手，集成了 LLM 对话、工具执行、定时任务、持久化记忆和多通道消息功能。
+This project is a Go rewrite of [nanobot](https://github.com/HKUDS/nanobot).
 
-这是 Python 项目 [nanobot](https://github.com/HKUDS/nanobot) 的 Go 语言重写版本。
+## Highlights
 
-## 功能特性
+- LLM chat with session persistence and conversation summaries
+- Built-in tools for shell execution, file editing, web search, and web fetch
+- Memory workspace with long-term notes and daily logs
+- Cron-based scheduled tasks
+- Console and Telegram channels
+- Desktop client built with Wails
+- Thinking/reasoning stream support in the desktop chat UI
+- Client-side model settings, including custom provider/model entries
 
-- **LLM 对话** - 支持上下文感知的自然语言对话
-- **工具执行** - 内置文件操作、网络搜索等工具
-- **持久化记忆** - 每日笔记和长期记忆存储
-- **定时任务** - 基于 Cron 的灵活任务调度
-- **多通道支持** - 支持 Console 和 Telegram 通道
-- **会话管理** - 对话持久化与自动压缩
-- **思考模式** - 可视化展示复杂任务的推理过程
+## Desktop Client
 
-## 内置工具
+The desktop app lives in `frontend/` and is packaged with Wails.
 
-| 工具 | 描述 |
-|------|------|
-| `exec` | 执行 Shell 命令 |
-| `read_file` | 读取文件内容 |
-| `write_file` | 写入或创建文件 |
-| `edit_file` | 搜索替换编辑文件 |
-| `list_dir` | 列出目录内容 |
-| `web_search` | 网络搜索 |
-| `web_fetch` | 获取并提取网页内容 |
-| `message` | 向通道发送消息 |
+Current desktop features include:
 
-## 快速开始
+- Assistant lane, conversation lane, and chat workspace
+- Streaming chat UI with message metadata, reasoning blocks, and tool result blocks
+- Settings drawer for runtime tuning
+- Custom rename dialog for conversations
+- Provider/model settings UI where users can:
+  - switch the active provider
+  - edit built-in provider model settings
+  - add custom provider/model entries from the client
+  - configure `name`, `kind`, `model`, `api base`, and `api key`
 
-### 环境要求
+Build the desktop binary with:
+
+```bash
+wails build -tags desktop -m
+```
+
+The output binary is written to `build/bin/`.
+
+## Core Features
+
+- `chat`: direct prompt/response workflows
+- `tools`: local execution and web helpers
+- `memory`: long-term memory and daily note storage
+- `cron`: recurring and one-shot scheduled jobs
+- `gateway`: long-running runtime for connected channels
+- `desktop`: Wails-based local client
+
+## Built-in Tools
+
+| Tool | Purpose |
+| --- | --- |
+| `exec` | Run shell commands |
+| `read_file` | Read file contents |
+| `write_file` | Create or overwrite files |
+| `edit_file` | Search/replace file edits |
+| `list_dir` | List directory contents |
+| `web_search` | Search the web |
+| `web_fetch` | Fetch and extract webpage content |
+| `message` | Send a message to a channel |
+
+## Requirements
 
 - Go 1.21+
-- LLM API 密钥（支持 Qwen、OpenAI、DeepSeek 或 Ollama）
+- Node.js and npm for the desktop frontend
+- Wails CLI for desktop builds
+- At least one configured model provider
 
-### 安装
+## Quick Start
+
+Clone and build:
 
 ```bash
-# 克隆仓库
 git clone https://github.com/yourusername/tinybot.git
 cd tinybot
-
-# 编译
-go build -o tinybot.exe ./cmd/tinybot
+go build ./cmd/tinybot
 ```
 
-### 初始化
+Initialize the workspace:
 
 ```bash
-# 初始化工作空间
 ./tinybot.exe onboard
-
-# 设置 API 密钥
-export QWEN_API_KEY=your_api_key_here
-# 或使用 OpenAI
-export OPENAI_API_KEY=your_api_key_here
 ```
 
-### 使用
+Run a direct chat:
 
 ```bash
-# 直接对话
-./tinybot.exe "今天天气怎么样？"
+./tinybot.exe "What can you do?"
+```
 
-# 查看状态
-./tinybot.exe status
+Run the gateway:
 
-# 启动网关模式（长期运行）
+```bash
 ./tinybot.exe gateway
 ```
 
-## CLI 命令
+Check status:
 
 ```bash
-tinybot <message>              # 直接对话（非命令输入视为消息）
-tinybot onboard                # 初始化工作空间
-tinybot status                 # 显示工作空间状态
-tinybot gateway                # 启动网关模式
-
-# 定时任务管理
-tinybot cron list                                    # 列出所有任务
-tinybot cron add <名称> <秒数> <提示词>               # 添加间隔任务
-tinybot cron add-cron <名称> <cron表达式> <提示词>    # 添加 Cron 任务
-tinybot cron add-at <名称> <RFC3339时间> <提示词>     # 添加一次性任务
-tinybot cron remove <任务ID>                         # 删除任务
-tinybot cron run-once                                # 执行到期任务
+./tinybot.exe status
 ```
 
-## 配置
+## CLI Commands
 
-配置文件位于项目根目录的 `config.json`：
+```bash
+tinybot <message>              # send a direct prompt
+tinybot onboard                # initialize workspace files
+tinybot status                 # show workspace and runtime status
+tinybot gateway                # run the long-lived gateway
 
-> 也可以通过环境变量 `TINYBOT_CONFIG` 指定自定义配置文件路径。
+tinybot cron list
+tinybot cron add <name> <seconds> <prompt>
+tinybot cron add-cron <name> <cron_expr> <prompt>
+tinybot cron add-at <name> <rfc3339_time> <prompt>
+tinybot cron remove <task_id>
+tinybot cron run-once
+```
+
+## Configuration
+
+Configuration is stored in `config.json` by default.
+
+You can override the path with:
+
+```bash
+set TINYBOT_CONFIG=D:\path\to\config.json
+```
+
+Example:
 
 ```json
 {
@@ -102,26 +137,29 @@ tinybot cron run-once                                # 执行到期任务
     "max_tokens": 8192,
     "temperature": 0.7,
     "max_tool_iterations": 20,
-    "enable_thinking": true,
-    "consolidation": {
-      "enabled": true,
-      "token_limit": 60000,
-      "keep_recent": 10
-    }
+    "enable_thinking": true
   },
   "providers": {
     "active": "qwen",
     "list": {
       "qwen": {
         "kind": "qwen",
-        "api_key": "...",
-        "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "model": "qwen3-max"
+        "model": "qwen3-max",
+        "api_key": "",
+        "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      },
+      "openai": {
+        "kind": "openai",
+        "model": "gpt-4o-mini",
+        "api_key": "",
+        "api_base": "https://api.openai.com/v1"
       }
     }
   },
   "channels": {
-    "console": { "enabled": true },
+    "console": {
+      "enabled": true
+    },
     "telegram": {
       "enabled": false,
       "token": ""
@@ -130,89 +168,100 @@ tinybot cron run-once                                # 执行到期任务
 }
 ```
 
-### 环境变量
+### Environment Variables
 
-| 变量 | 描述 |
-|------|------|
-| `QWEN_API_KEY` | Qwen API 密钥 |
-| `QWEN_API_BASE` | Qwen API 地址 |
-| `QWEN_MODEL` | Qwen 模型名称 |
-| `OPENAI_API_KEY` | OpenAI API 密钥 |
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token |
+| Variable | Purpose |
+| --- | --- |
+| `TINYBOT_CONFIG` | Custom config file path |
+| `QWEN_API_KEY` | Qwen API key |
+| `QWEN_API_BASE` | Qwen API base |
+| `QWEN_MODEL` | Qwen default model |
+| `OPENAI_API_KEY` | OpenAI API key |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token |
 
-## 项目架构
+## Custom Models From the Client
 
-```
-cmd/tinybot/           # CLI 入口
+You can now add custom provider/model entries directly in the desktop settings UI.
+
+Open the client settings and use the model settings section to:
+
+1. add a new custom entry
+2. set a provider `name`
+3. set its `kind`
+4. set the `model`
+5. set the `api base`
+6. optionally set the `api key`
+7. save and switch the active provider
+
+These settings are written back through the desktop config save flow and persisted to `config.json`.
+
+## Project Layout
+
+```text
+cmd/tinybot/                CLI entrypoint
 internal/
-  app/                 # 依赖注入根
-  domain/model/        # 核心类型定义
-  service/
-    chat/              # 对话编排
-    cron/              # 任务调度
-    heartbeat/         # 心跳评估
-  repository/
-    sessionrepo/       # 会话持久化
-    cronrepo/          # 定时任务持久化
-  transport/
-    bus/               # 消息总线
-    channel/           # 通道实现
-    gateway/           # 网关循环
-    runtime/           # 周期性运行器
-  adapters/
-    provider/          # LLM 提供者适配器
-    tool/              # 工具实现
-    workspace/         # 记忆与引导文件
+  app/                      config, bootstrap, and shared setup
+  desktop/                  desktop service and Wails bindings
+  repository/               persistence for sessions and cron jobs
+  service/                  chat, cron, and orchestration flows
+  transport/                channels and gateway runtime
+  adapters/                 providers, tools, and workspace helpers
+frontend/
+  src/app/                  desktop app state and bindings
+  src/features/             UI features such as assistants, topics, chat, settings
+build/bin/                  built desktop binaries
+workspace/                  memory, session, and runtime files
 ```
 
-## 记忆系统
+## Memory Workspace
 
-tinybot 通过以下方式维护持久化记忆：
+tinybot stores long-term memory and daily notes under `workspace/memory/`.
 
-- **MEMORY.md** - 长期记忆（事实、偏好）
-- **每日笔记** - YYYY-MM-DD.md 格式的每日记录
-- **自动提取** - LLM 自动提取重要信息
+Typical layout:
 
-```bash
-# 记忆文件存储位置：
-workspace/memory/
-├── MEMORY.md           # 长期记忆
-├── 2026-03-16.md       # 今日笔记
-└── 2026-03-15.md       # 昨日笔记
+```text
+workspace/
+  memory/
+    MEMORY.md
+    2026-03-16.md
+    2026-03-17.md
 ```
 
-## 开发
+## Development
+
+Run Go tests:
 
 ```bash
-# 运行所有测试
 go test ./...
-
-# 运行测试并显示覆盖率
-go test -cover ./...
-
-# 运行指定包的测试
-go test -v ./internal/service/chat/...
 ```
 
-## 与 nanobot 对比
+Run a narrower set:
 
-| 功能 | nanobot (Python) | tinybot (Go) |
-|------|------------------|--------------|
-| LLM 对话 | ✅ | ✅ |
-| 工具执行 | ✅ | ✅ |
-| 记忆系统 | ✅ | ✅ |
-| 定时任务 | ✅ | ✅ |
-| Telegram 通道 | ✅ | ✅ |
-| 思考模式 | ❌ | ✅ |
-| 自动重试 | ❌ | ✅ |
-| CLI 状态查看 | ❌ | ✅ |
+```bash
+go test ./internal/desktop ./internal/repository/sessionrepo
+```
 
-## 许可证
+Build the frontend only:
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+Build the desktop app:
+
+```bash
+wails build -tags desktop -m
+```
+
+## License
 
 MIT
 
-## 致谢
+## Credits
 
-- [nanobot](https://github.com/HKUDS/nanobot) - 原始 Python 实现
-- [openai-go](https://github.com/openai/openai-go) - OpenAI Go SDK
-- [cron](https://github.com/robfig/cron) - Go Cron 库
+- [nanobot](https://github.com/HKUDS/nanobot)
+- [openai-go](https://github.com/openai/openai-go)
+- [robfig/cron](https://github.com/robfig/cron)
+- [Wails](https://wails.io/)
