@@ -4,7 +4,7 @@ This file stores important information that should persist across sessions.
 
 ## User Information
 
-- **生日**：3月20日
+- **生日**：1月1日
 
 ## Preferences
 

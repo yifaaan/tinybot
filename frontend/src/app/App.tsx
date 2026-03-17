@@ -377,6 +377,36 @@ export function App() {
     setSelectedSession((previous) => (previous ? { ...previous, summary } : previous));
   }, [currentSummary]);
 
+  const handleRenameSession = useCallback(async (session: SessionSummary) => {
+    const title = window.prompt("Topic title", session.title);
+    if (!title) {
+      return;
+    }
+
+    const api = await waitForDesktopApi(250);
+    if (!api) {
+      setBootstrap((previous) => ({
+        ...previous,
+        sessions: previous.sessions.map((item) => (item.key === session.key ? { ...item, title } : item)),
+      }));
+      if (session.key === selectedSessionKey) {
+        setSelectedSession((previous) =>
+          previous ? { ...previous, summary: { ...previous.summary, title } } : previous,
+        );
+      }
+      return;
+    }
+
+    const summary = await renameDesktopSession(session.key, title);
+    setBootstrap((previous) => ({
+      ...previous,
+      sessions: previous.sessions.map((item) => (item.key === summary.key ? summary : item)),
+    }));
+    if (summary.key === selectedSessionKey) {
+      setSelectedSession((previous) => (previous ? { ...previous, summary } : previous));
+    }
+  }, [selectedSessionKey]);
+
   const handleDelete = useCallback(async () => {
     if (!currentSummary) {
       return;
@@ -395,10 +425,38 @@ export function App() {
       sessions: previous.sessions.filter((session) => session.key !== currentSummary.key),
     }));
     setSelectedSessionKey(nextSessionKey);
-    if (!nextSessionKey) {
-      setSelectedSession(null);
-    }
+    setSelectedSession(null);
   }, [bootstrap.sessions, currentSummary, selectedProviderName]);
+
+  const handleDeleteSession = useCallback(
+    async (session: SessionSummary) => {
+      if (!window.confirm(`Delete "${session.title}"?`)) {
+        return;
+      }
+
+      const api = await waitForDesktopApi(250);
+      if (api) {
+        await deleteDesktopSession(session.key);
+      }
+
+      const nextSessions = bootstrap.sessions.filter((item) => item.key !== session.key);
+      const nextSessionKey =
+        session.key === selectedSessionKey
+          ? resolveSessionKeyForProvider(nextSessions, selectedProviderName, undefined)
+          : selectedSessionKey;
+
+      setBootstrap((previous) => ({
+        ...previous,
+        sessions: previous.sessions.filter((item) => item.key !== session.key),
+      }));
+
+      if (session.key === selectedSessionKey) {
+        setSelectedSessionKey(nextSessionKey);
+        setSelectedSession(null);
+      }
+    },
+    [bootstrap.sessions, selectedProviderName, selectedSessionKey],
+  );
 
   const handleProviderSelect = useCallback(
     async (provider: ProviderInfo) => {
@@ -624,7 +682,11 @@ export function App() {
   return (
     <div className="app-shell">
       <div className="shell" style={{ gridTemplateColumns: shellColumns }}>
-        <RailNav notice={notice} />
+        <RailNav
+          notice={notice}
+          providerName={currentProvider?.name ?? ""}
+          topicCount={filteredSessions.length}
+        />
         {assistantsOpen && (
           <AssistantsPane
             onSelectProvider={handleProviderSelect}
@@ -636,6 +698,8 @@ export function App() {
         {topicsOpen && (
           <TopicsPane
             onCreateSession={handleCreateSession}
+            onDeleteSession={handleDeleteSession}
+            onRenameSession={handleRenameSession}
             onSelectSession={handleSelectSession}
             provider={currentProvider}
             selectedSessionKey={selectedSessionKey}

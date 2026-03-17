@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { KeyboardEvent, useEffect, useRef } from "react";
 
 import type { ProviderInfo, SessionDetail, SessionMessage } from "../../app/types";
 import { MarkdownContent } from "./MarkdownContent";
@@ -22,6 +22,24 @@ type Props = {
   onToggleTopics: () => void;
 };
 
+function formatHeaderTime(value: string | undefined): string {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function ChatWorkspace({
   session,
   provider,
@@ -41,6 +59,13 @@ export function ChatWorkspace({
   onToggleTopics,
 }: Props) {
   const thinkingViewportRef = useRef<HTMLDivElement | null>(null);
+
+  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      onSend();
+    }
+  };
 
   useEffect(() => {
     const viewport = thinkingViewportRef.current;
@@ -151,27 +176,45 @@ export function ChatWorkspace({
               <h2>{session?.summary.title ?? "No topic selected"}</h2>
               {provider && <span className="context-pill">{provider.name}</span>}
             </div>
-            <p className="chat-subtitle">
-              {provider ? `${provider.model} · ${session?.summary.messageCount ?? 0} messages` : "Select an assistant"}
-            </p>
+            <div className="chat-meta-row">
+              <p className="chat-subtitle">
+                {provider ? `${provider.model} / ${session?.summary.messageCount ?? 0} messages` : "Select an assistant"}
+              </p>
+              {session?.summary.updatedAt && (
+                <span className="chat-timestamp">{formatHeaderTime(session.summary.updatedAt)}</span>
+              )}
+            </div>
+          </div>
+          <div className="chat-context-rail">
+            <span className="chat-context-chip">desktop</span>
+            <span className="chat-context-chip">{busy ? "live" : "idle"}</span>
           </div>
         </div>
         <div className="header-actions">
-          <button className="ghost" onClick={onToggleAssistants} type="button">
-            {assistantsOpen ? "Hide Assistants" : "Show Assistants"}
-          </button>
-          <button className="ghost" onClick={onToggleTopics} type="button">
-            {topicsOpen ? "Hide Topics" : "Show Topics"}
-          </button>
-          <button className="ghost" onClick={onRename} type="button">
-            Rename
-          </button>
-          <button className="ghost danger" onClick={onDelete} type="button">
-            Delete
-          </button>
-          <button className="action" onClick={onOpenSettings} type="button">
-            Settings
-          </button>
+          <div className="header-action-cluster">
+            <button className="ghost compact nav-button icon-nav-button" onClick={onToggleAssistants} title="Toggle assistants" type="button">
+              <span className="nav-button-glyph">AS</span>
+              <span className="nav-button-label">{assistantsOpen ? "Assistants" : "Show Assistants"}</span>
+            </button>
+            <button className="ghost compact nav-button icon-nav-button" onClick={onToggleTopics} title="Toggle topics" type="button">
+              <span className="nav-button-glyph">TP</span>
+              <span className="nav-button-label">{topicsOpen ? "Topics" : "Show Topics"}</span>
+            </button>
+          </div>
+          <div className="header-action-cluster">
+            <button className="ghost compact nav-button icon-nav-button" onClick={onRename} title="Rename topic" type="button">
+              <span className="nav-button-glyph">RN</span>
+              <span className="nav-button-label">Rename</span>
+            </button>
+            <button className="ghost compact danger nav-button icon-nav-button" onClick={onDelete} title="Delete topic" type="button">
+              <span className="nav-button-glyph">DL</span>
+              <span className="nav-button-label">Delete</span>
+            </button>
+            <button className="action compact nav-button icon-nav-button" onClick={onOpenSettings} title="Open settings" type="button">
+              <span className="nav-button-glyph">ST</span>
+              <span className="nav-button-label">Settings</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -184,33 +227,39 @@ export function ChatWorkspace({
       </section>
 
       <footer className="composer-shell">
-        <div className="composer-toolbar">
-          <button className="ghost toolbar-chip" onClick={onOpenSettings} type="button">
-            {provider?.name ?? "Assistant"}
-          </button>
-          <button className="ghost toolbar-chip" type="button">
-            Files
-          </button>
-          <button className="ghost toolbar-chip" type="button">
-            Tools
-          </button>
-          <button className="ghost toolbar-chip" type="button">
-            Skills
-          </button>
-        </div>
-        <div className="chat-notice">{notice}</div>
-        <textarea
-          id="composer"
-          placeholder="Message this topic..."
-          rows={4}
-          value={draft}
-          onChange={(event) => onDraftChange(event.target.value)}
-        />
-        <div className="composer-footer">
-          <span>{busy ? "Streaming..." : "Ready"}</span>
-          <button className="action primary" disabled={busy} onClick={onSend} type="button">
-            Send
-          </button>
+        <div className="composer-surface">
+          <div className="composer-toolbar">
+            <div className="composer-toolbar-group">
+              <button className="ghost toolbar-chip active" onClick={onOpenSettings} type="button">
+                {provider?.name ?? "Assistant"}
+              </button>
+              <button className="ghost toolbar-chip" type="button">
+                Attach
+              </button>
+              <button className="ghost toolbar-chip" type="button">
+                Tools
+              </button>
+              <button className="ghost toolbar-chip" type="button">
+                Skills
+              </button>
+            </div>
+            <span className="composer-hint">Enter to send, Shift+Enter for newline</span>
+          </div>
+          <div className="chat-notice">{notice}</div>
+          <textarea
+            id="composer"
+            onChange={(event) => onDraftChange(event.target.value)}
+            onKeyDown={handleComposerKeyDown}
+            placeholder="Message this topic..."
+            rows={4}
+            value={draft}
+          />
+          <div className="composer-footer">
+            <span>{busy ? "Streaming..." : "Ready"}</span>
+            <button className="action primary" disabled={busy} onClick={onSend} type="button">
+              Send
+            </button>
+          </div>
         </div>
       </footer>
     </main>
