@@ -19,6 +19,8 @@ import { AssistantsPane } from "../features/assistants/AssistantsPane";
 import { ChatWorkspace } from "../features/chat/ChatWorkspace";
 import { RailNav } from "../features/navigation/RailNav";
 import { SettingsDrawer } from "../features/settings/SettingsDrawer";
+import type { ProviderDraft } from "../features/settings/SettingsDrawer";
+import { RenameDialog } from "../features/topics/RenameDialog";
 import { TopicsPane } from "../features/topics/TopicsPane";
 
 const NEW_SESSION_TITLE = "Untitled desktop chat";
@@ -99,6 +101,7 @@ export function App() {
   const [topicsOpen, setTopicsOpen] = useState(true);
   const [draft, setDraft] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<SessionSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("Desktop preview mode");
   const [thinkingText, setThinkingText] = useState("");
@@ -354,58 +357,40 @@ export function App() {
     if (!currentSummary) {
       return;
     }
-    const title = window.prompt("Topic title", currentSummary.title);
-    if (!title) {
+    setRenameTarget(currentSummary);
+  }, [currentSummary]);
+
+  const handleConfirmRename = useCallback(async (title: string) => {
+    const target = renameTarget;
+    if (!target) {
       return;
     }
+
+    setRenameTarget(null);
     const api = await waitForDesktopApi(250);
     if (!api) {
       setBootstrap((previous) => ({
         ...previous,
-        sessions: previous.sessions.map((session) => (session.key === currentSummary.key ? { ...session, title } : session)),
+        sessions: previous.sessions.map((session) => (session.key === target.key ? { ...session, title } : session)),
       }));
       setSelectedSession((previous) =>
-        previous ? { ...previous, summary: { ...previous.summary, title } } : previous,
+        previous && previous.summary.key === target.key ? { ...previous, summary: { ...previous.summary, title } } : previous,
       );
       return;
     }
-    const summary = await renameDesktopSession(currentSummary.key, title);
+    const summary = await renameDesktopSession(target.key, title);
     setBootstrap((previous) => ({
       ...previous,
       sessions: previous.sessions.map((session) => (session.key === summary.key ? summary : session)),
     }));
-    setSelectedSession((previous) => (previous ? { ...previous, summary } : previous));
-  }, [currentSummary]);
+    setSelectedSession((previous) =>
+      previous && previous.summary.key === summary.key ? { ...previous, summary } : previous,
+    );
+  }, [renameTarget]);
 
   const handleRenameSession = useCallback(async (session: SessionSummary) => {
-    const title = window.prompt("Topic title", session.title);
-    if (!title) {
-      return;
-    }
-
-    const api = await waitForDesktopApi(250);
-    if (!api) {
-      setBootstrap((previous) => ({
-        ...previous,
-        sessions: previous.sessions.map((item) => (item.key === session.key ? { ...item, title } : item)),
-      }));
-      if (session.key === selectedSessionKey) {
-        setSelectedSession((previous) =>
-          previous ? { ...previous, summary: { ...previous.summary, title } } : previous,
-        );
-      }
-      return;
-    }
-
-    const summary = await renameDesktopSession(session.key, title);
-    setBootstrap((previous) => ({
-      ...previous,
-      sessions: previous.sessions.map((item) => (item.key === summary.key ? summary : item)),
-    }));
-    if (summary.key === selectedSessionKey) {
-      setSelectedSession((previous) => (previous ? { ...previous, summary } : previous));
-    }
-  }, [selectedSessionKey]);
+    setRenameTarget(session);
+  }, []);
 
   const handleDelete = useCallback(async () => {
     if (!currentSummary) {
@@ -508,10 +493,34 @@ export function App() {
   );
 
   const handleSaveSettings = useCallback(
-    async (form: HTMLFormElement) => {
+    async (
+      form: HTMLFormElement,
+      providers: ProviderDraft[],
+    ) => {
       const data = new FormData(form);
       const nextTheme = String(data.get("theme") ?? "black") as "black" | "white";
       setTheme(nextTheme);
+
+      const providerPatches = providers
+        .map((provider) => {
+          const name = provider.name.trim();
+          const kind = provider.kind.trim();
+          const model = provider.model.trim();
+          const apiBase = provider.apiBase.trim();
+          const apiKey = provider.apiKey.trim();
+          if (name === "" || model === "") {
+            return null;
+          }
+
+          return {
+            name,
+            kind: kind || name,
+            model,
+            ...(apiBase !== "" ? { apiBase } : {}),
+            ...(apiKey !== "" ? { apiKey } : {}),
+          };
+        })
+        .filter((provider): provider is { name: string; kind: string; model: string; apiBase?: string; apiKey?: string } => Boolean(provider));
 
       const patch = {
         activeProvider: String(data.get("activeProvider") ?? bootstrap.config.providers.active),
@@ -519,6 +528,7 @@ export function App() {
         maxTokens: Number(data.get("maxTokens") ?? bootstrap.config.agents.max_tokens),
         enableThinking: data.get("enableThinking") === "on",
         consoleEnabled: data.get("consoleEnabled") === "on",
+        providers: providerPatches,
       };
 
       const api = await waitForDesktopApi(250);
@@ -543,10 +553,20 @@ export function App() {
               },
             },
           },
-          providers: previous.providers.map((provider) => ({
-            ...provider,
-            active: provider.name === patch.activeProvider,
-          })),
+          providers:
+            providerPatches.length > 0
+              ? providerPatches.map((provider) => ({
+                  name: provider.name,
+                  kind: provider.kind,
+                  model: provider.model,
+                  apiBase: provider.apiBase ?? "",
+                  active: provider.name === patch.activeProvider,
+                  configured:
+                    typeof provider.apiKey === "string"
+                      ? provider.apiKey.trim() !== "" || (provider.apiBase ?? "").startsWith("http://localhost")
+                      : previous.providers.some((item) => item.name === provider.name && item.configured),
+                }))
+              : previous.providers,
         }));
         setSelectedProviderName(patch.activeProvider);
         setSelectedSessionKey(resolveSessionKeyForProvider(bootstrap.sessions, patch.activeProvider, selectedSessionKey));
@@ -668,12 +688,12 @@ export function App() {
   ]);
 
   const shellColumns = useMemo(() => {
-    const columns = ["108px"];
+    const columns = ["64px"];
     if (assistantsOpen) {
-      columns.push("284px");
+      columns.push("248px");
     }
     if (topicsOpen) {
-      columns.push("320px");
+      columns.push("286px");
     }
     columns.push("minmax(0, 1fr)");
     return columns.join(" ");
@@ -684,6 +704,7 @@ export function App() {
       <div className="shell" style={{ gridTemplateColumns: shellColumns }}>
         <RailNav
           notice={notice}
+          onOpenSettings={() => setSettingsOpen(true)}
           providerName={currentProvider?.name ?? ""}
           topicCount={filteredSessions.length}
         />
@@ -732,6 +753,12 @@ export function App() {
         onThemeChange={setTheme}
         open={settingsOpen}
         theme={theme}
+      />
+      <RenameDialog
+        initialValue={renameTarget?.title ?? ""}
+        onClose={() => setRenameTarget(null)}
+        onSubmit={handleConfirmRename}
+        open={Boolean(renameTarget)}
       />
     </div>
   );

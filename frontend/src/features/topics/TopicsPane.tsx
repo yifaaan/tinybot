@@ -20,6 +20,11 @@ type TopicGroup = {
   sessions: SessionSummary[];
 };
 
+function topicPreview(value: string): string {
+  const preview = value.replace(/\s+/g, " ").trim();
+  return preview || "No preview yet";
+}
+
 function formatTopicTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -160,9 +165,9 @@ export function TopicsPane({
     <section className="topics-pane">
       <header className="pane-header">
         <div>
-          <span className="eyebrow">Topics</span>
+          <span className="eyebrow">Conversations</span>
           <h1>{provider?.name ?? "No assistant"}</h1>
-          <p className="pane-subtitle">{sessions.length} topics in this workspace lane</p>
+          <p className="pane-subtitle">{sessions.length} topics</p>
         </div>
         <button className="action" onClick={onCreateSession} type="button">
           New Topic
@@ -211,16 +216,18 @@ export function TopicsPane({
                     tabIndex={0}>
                     <div className="topic-card-head">
                       <div className="topic-card-title">
+                        <span className={`topic-status-dot ${session.key === selectedSessionKey ? "active" : ""}`} aria-hidden="true" />
                         <strong>{session.title}</strong>
                         {pinned && <span className="topic-badge">Pinned</span>}
                       </div>
-                      <span>{formatTopicTime(session.updatedAt)}</span>
+                      <div className="topic-card-tail">
+                        <span>{formatTopicTime(session.updatedAt)}</span>
+                        <span className="topic-menu-glyph" aria-hidden="true">
+                          ...
+                        </span>
+                      </div>
                     </div>
-                    <div className="topic-kickers">
-                      <span className="topic-mini-pill">{session.channel}</span>
-                      <span className="topic-mini-pill">{session.messageCount} msgs</span>
-                    </div>
-                    <p>{session.preview || "No preview yet"}</p>
+                    <p>{topicPreview(session.preview)}</p>
                     <div className="topic-meta">
                       <span>{session.messageCount} messages</span>
                       <span>{session.channel}</span>

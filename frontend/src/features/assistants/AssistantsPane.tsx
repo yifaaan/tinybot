@@ -39,8 +39,8 @@ export function AssistantsPane({ providers, selectedProviderName, sessionCounts,
     <section className="assistants-pane">
       <header className="pane-header pane-header-tight">
         <div>
-          <span className="eyebrow">Assistants</span>
-          <h1>Providers</h1>
+          <span className="eyebrow">Workspace</span>
+          <h1>Assistants</h1>
           <p className="pane-subtitle">
             {configuredCount}/{providers.length} configured
           </p>
@@ -81,23 +81,22 @@ export function AssistantsPane({ providers, selectedProviderName, sessionCounts,
                 <span className="assistant-avatar" aria-hidden="true">
                   {providerInitials(provider.name)}
                 </span>
-                <div className="assistant-card-head">
+                <div className="assistant-card-head compact">
                   <div className="assistant-name-stack">
                     <strong>{provider.name}</strong>
-                    <span className="assistant-kind">{provider.kind}</span>
+                    <span className="assistant-model">{provider.model}</span>
                   </div>
-                  <span className={`assistant-dot ${provider.configured ? "configured" : "missing"}`} aria-hidden="true" />
+                  <div className="assistant-card-side">
+                    <span className="assistant-topic-count">{sessionCounts[provider.name] ?? 0}</span>
+                    <span className={`assistant-dot ${provider.configured ? "configured" : "missing"}`} aria-hidden="true" />
+                  </div>
                 </div>
               </div>
-              <span className="assistant-model">{provider.model}</span>
               <div className="assistant-meta">
-                <span>{sessionCounts[provider.name] ?? 0} topics</span>
-                <span>{provider.configured ? "Configured" : "Missing key"}</span>
+                <span className="assistant-kind">{provider.kind}</span>
+                <span>{provider.configured ? "Ready" : "Key required"}</span>
               </div>
-              <div className="assistant-footer">
-                <span className="assistant-api">{provider.apiBase || "Local provider"}</span>
-                {isActive && <span className="assistant-badge">Active</span>}
-              </div>
+              {isActive && <span className="assistant-badge">Current</span>}
             </article>
           );
         })}

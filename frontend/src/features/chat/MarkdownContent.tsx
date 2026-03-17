@@ -1,4 +1,4 @@
-import React, { Fragment } from "react";
+import React, { Fragment, useEffect, useState } from "react";
 
 type Props = {
   content: string;
@@ -9,15 +9,47 @@ type InlineToken =
   | { type: "code"; value: string }
   | { type: "strong"; children: InlineToken[] }
   | { type: "em"; children: InlineToken[] }
-  | { type: "link"; href: string; children: InlineToken[] };
+  | { type: "link"; href: string; children: InlineToken[] }
+  | { type: "image"; src: string; alt: string };
+
+type ListItem = {
+  text: string;
+  checked?: boolean;
+};
 
 type Block =
   | { type: "heading"; depth: number; content: string }
   | { type: "paragraph"; lines: string[] }
   | { type: "code"; language: string; content: string }
+  | { type: "hr" }
   | { type: "blockquote"; lines: string[] }
-  | { type: "ul"; items: string[] }
-  | { type: "ol"; items: string[] };
+  | { type: "ul"; items: ListItem[] }
+  | { type: "ol"; items: ListItem[] }
+  | { type: "table"; headers: string[]; rows: string[][] };
+
+function splitTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function isTableSeparator(line: string): boolean {
+  const cells = splitTableRow(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function isTableStart(lines: string[], index: number): boolean {
+  if (index + 1 >= lines.length) {
+    return false;
+  }
+
+  const header = lines[index].trim();
+  const separator = lines[index + 1].trim();
+  return header.includes("|") && separator.includes("|") && isTableSeparator(separator);
+}
 
 function parseBlocks(markdown: string): Block[] {
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");
@@ -56,6 +88,12 @@ function parseBlocks(markdown: string): Block[] {
       continue;
     }
 
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      blocks.push({ type: "hr" });
+      index += 1;
+      continue;
+    }
+
     if (trimmed.startsWith(">")) {
       const quoteLines: string[] = [];
       while (index < lines.length) {
@@ -70,30 +108,53 @@ function parseBlocks(markdown: string): Block[] {
       continue;
     }
 
-    if (/^[-*]\s+/.test(trimmed)) {
-      const items: string[] = [];
+    if (isTableStart(lines, index)) {
+      const headers = splitTableRow(lines[index]);
+      const rows: string[][] = [];
+      index += 2;
       while (index < lines.length) {
         const candidate = lines[index].trim();
-        const match = candidate.match(/^[-*]\s+(.*)$/);
-        if (!match) {
+        if (candidate === "" || !candidate.includes("|")) {
           break;
         }
-        items.push(match[1]);
+        rows.push(splitTableRow(lines[index]));
         index += 1;
+      }
+      blocks.push({ type: "table", headers, rows });
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(trimmed)) {
+      const items: ListItem[] = [];
+      while (index < lines.length) {
+        const candidate = lines[index].trim();
+        const taskMatch = candidate.match(/^[-*]\s+\[( |x|X)\]\s+(.*)$/);
+        const bulletMatch = candidate.match(/^[-*]\s+(.*)$/);
+        if (taskMatch) {
+          items.push({ text: taskMatch[2], checked: taskMatch[1].toLowerCase() === "x" });
+          index += 1;
+          continue;
+        }
+        if (bulletMatch) {
+          items.push({ text: bulletMatch[1] });
+          index += 1;
+          continue;
+        }
+        break;
       }
       blocks.push({ type: "ul", items });
       continue;
     }
 
     if (/^\d+\.\s+/.test(trimmed)) {
-      const items: string[] = [];
+      const items: ListItem[] = [];
       while (index < lines.length) {
         const candidate = lines[index].trim();
         const match = candidate.match(/^\d+\.\s+(.*)$/);
         if (!match) {
           break;
         }
-        items.push(match[1]);
+        items.push({ text: match[1] });
         index += 1;
       }
       blocks.push({ type: "ol", items });
@@ -110,7 +171,9 @@ function parseBlocks(markdown: string): Block[] {
         candidateTrimmed.startsWith("```") ||
         /^#{1,6}\s+/.test(candidateTrimmed) ||
         /^[-*]\s+/.test(candidateTrimmed) ||
-        /^\d+\.\s+/.test(candidateTrimmed)
+        /^\d+\.\s+/.test(candidateTrimmed) ||
+        /^(-{3,}|\*{3,}|_{3,})$/.test(candidateTrimmed) ||
+        isTableStart(lines, index)
       ) {
         break;
       }
@@ -126,7 +189,8 @@ function parseBlocks(markdown: string): Block[] {
 function parseInline(text: string): InlineToken[] {
   const tokens: InlineToken[] = [];
   let remaining = text;
-  const pattern = /(`[^`]+`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*]+)\*\*|\*([^*]+)\*|_([^_]+)_)/;
+  const pattern =
+    /(!\[([^\]]*)\]\(([^)\s]+)\)|`[^`]+`|\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*]+)\*\*|\*([^*]+)\*|_([^_]+)_)/;
 
   while (remaining.length > 0) {
     const match = remaining.match(pattern);
@@ -140,18 +204,24 @@ function parseInline(text: string): InlineToken[] {
     }
 
     const raw = match[0];
-    if (raw.startsWith("`")) {
+    if (raw.startsWith("![")) {
+      tokens.push({
+        type: "image",
+        src: match[3],
+        alt: match[2] ?? "",
+      });
+    } else if (raw.startsWith("`")) {
       tokens.push({ type: "code", value: raw.slice(1, -1) });
     } else if (raw.startsWith("[")) {
       tokens.push({
         type: "link",
-        href: match[3],
-        children: parseInline(match[2]),
+        href: match[5],
+        children: parseInline(match[4]),
       });
     } else if (raw.startsWith("**")) {
-      tokens.push({ type: "strong", children: parseInline(match[4]) });
+      tokens.push({ type: "strong", children: parseInline(match[6]) });
     } else {
-      const emphasis = match[5] ?? match[6] ?? "";
+      const emphasis = match[7] ?? match[8] ?? "";
       tokens.push({ type: "em", children: parseInline(emphasis) });
     }
 
@@ -183,6 +253,8 @@ function renderInline(tokens: InlineToken[]): React.ReactNode[] {
             {renderInline(token.children)}
           </a>
         );
+      case "image":
+        return <img key={key} className="md-inline-image" src={token.src} alt={token.alt} />;
       default:
         return null;
     }
@@ -196,6 +268,76 @@ function renderLines(lines: string[]): React.ReactNode {
       {index < lines.length - 1 && <br />}
     </Fragment>
   ));
+}
+
+function TableBlock({ headers, rows }: { headers: string[]; rows: string[][] }) {
+  return (
+    <div className="md-table-wrap">
+      <table className="md-table">
+        <thead>
+          <tr>
+            {headers.map((header, index) => (
+              <th key={`header-${index}`}>{renderInline(parseInline(header))}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={`row-${rowIndex}`}>
+              {headers.map((_, cellIndex) => (
+                <td key={`row-${rowIndex}-cell-${cellIndex}`}>
+                  {renderInline(parseInline(row[cellIndex] ?? ""))}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CodeBlockView({ language, content }: { language: string; content: string }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setCopied(false), 1200);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  const handleCopy = async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(content);
+        setCopied(true);
+      }
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <div className="md-code-shell">
+      <div className="md-code-toolbar">
+        <span className="md-code-window" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </span>
+        <span className="md-code-lang">{language || "text"}</span>
+        <button className="md-code-copy" onClick={handleCopy} type="button">
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="md-code-block">
+        <code>{content}</code>
+      </pre>
+    </div>
+  );
 }
 
 export function MarkdownContent({ content }: Props) {
@@ -213,19 +355,23 @@ export function MarkdownContent({ content }: Props) {
           case "paragraph":
             return <p key={key}>{renderLines(block.lines)}</p>;
           case "code":
-            return (
-              <pre key={key} className="md-code-block">
-                {block.language && <span className="md-code-lang">{block.language}</span>}
-                <code>{block.content}</code>
-              </pre>
-            );
+            return <CodeBlockView key={key} language={block.language} content={block.content} />;
+          case "hr":
+            return <hr key={key} className="md-rule" />;
           case "blockquote":
             return <blockquote key={key}>{renderLines(block.lines)}</blockquote>;
           case "ul":
             return (
-              <ul key={key}>
+              <ul key={key} className={block.items.some((item) => typeof item.checked === "boolean") ? "md-task-list" : undefined}>
                 {block.items.map((item, itemIndex) => (
-                  <li key={`${key}-${itemIndex}`}>{renderInline(parseInline(item))}</li>
+                  <li
+                    key={`${key}-${itemIndex}`}
+                    className={typeof item.checked === "boolean" ? "md-task-item" : undefined}>
+                    {typeof item.checked === "boolean" && (
+                      <input checked={item.checked} disabled readOnly type="checkbox" />
+                    )}
+                    <span>{renderInline(parseInline(item.text))}</span>
+                  </li>
                 ))}
               </ul>
             );
@@ -233,10 +379,12 @@ export function MarkdownContent({ content }: Props) {
             return (
               <ol key={key}>
                 {block.items.map((item, itemIndex) => (
-                  <li key={`${key}-${itemIndex}`}>{renderInline(parseInline(item))}</li>
+                  <li key={`${key}-${itemIndex}`}>{renderInline(parseInline(item.text))}</li>
                 ))}
               </ol>
             );
+          case "table":
+            return <TableBlock key={key} headers={block.headers} rows={block.rows} />;
           default:
             return null;
         }
