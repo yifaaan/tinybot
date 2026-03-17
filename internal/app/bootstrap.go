@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -30,7 +31,7 @@ type App struct {
 func NewApp(workspace string) (*App, error) {
 	workspace = ResolveWorkspacePath(workspace)
 
-	if err := loadDotEnv(); err != nil {
+	if err := loadDotEnv(); err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
 

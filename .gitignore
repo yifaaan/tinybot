@@ -6,3 +6,8 @@ test.md
 .planning
 .claude
 *.exe*
+node_modules/
+dist/
+build/
+frontend/wailsjs/
+frontend/package.json.md5

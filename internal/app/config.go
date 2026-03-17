@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"tinybot/internal/utils"
 	"tinybot/internal/utils/logger"
 )
@@ -309,7 +310,7 @@ func getConfigPath() string {
 	if path := os.Getenv("TINYBOT_CONFIG"); path != "" {
 		return path
 	}
-	return "./config.json"
+	return filepath.Join(defaultBaseDir(), "config.json")
 }
 
 // RetryConfig 控制 LLM 调用的重试行为

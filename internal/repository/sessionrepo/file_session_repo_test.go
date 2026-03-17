@@ -2,6 +2,7 @@ package sessionrepo
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -270,5 +271,44 @@ func TestFileSessionRepository_Invalidate(t *testing.T) {
 
 	if _, ok := repo.cache["cli:local"]; ok {
 		t.Fatal("expected cache entry to be removed")
+	}
+}
+
+func TestFileSessionRepository_DeleteSession(t *testing.T) {
+	repo := NewFileSessionRepository(t.TempDir())
+	session := newTestSession("desktop:delete")
+	if err := repo.SaveSession(context.Background(), session); err != nil {
+		t.Fatalf("SaveSession() error: %v", err)
+	}
+
+	if err := repo.DeleteSession(session.Key); err != nil {
+		t.Fatalf("DeleteSession() error: %v", err)
+	}
+	if _, err := os.Stat(repo.GetSessionPath(session.Key)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("session file err = %v, want os.ErrNotExist", err)
+	}
+}
+
+func TestFileSessionRepository_RenameSession(t *testing.T) {
+	repo := NewFileSessionRepository(t.TempDir())
+	session := newTestSession("desktop:rename")
+	if err := repo.SaveSession(context.Background(), session); err != nil {
+		t.Fatalf("SaveSession() error: %v", err)
+	}
+
+	renamed, err := repo.RenameSession(context.Background(), session.Key, "Renamed")
+	if err != nil {
+		t.Fatalf("RenameSession() error: %v", err)
+	}
+	if renamed.Metadata["title"] != "Renamed" {
+		t.Fatalf("title = %#v, want %q", renamed.Metadata["title"], "Renamed")
+	}
+
+	loaded, err := repo.LoadSession(session.Key)
+	if err != nil {
+		t.Fatalf("LoadSession() error: %v", err)
+	}
+	if loaded.Metadata["title"] != "Renamed" {
+		t.Fatalf("loaded title = %#v, want %q", loaded.Metadata["title"], "Renamed")
 	}
 }

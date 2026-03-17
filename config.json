@@ -1,36 +1,82 @@
 {
   "agents": {
     "workspace": "./workspace",
-    "model": "qwen3.5-plus",
     "max_tokens": 8192,
     "temperature": 0.7,
     "max_tool_iterations": 20,
     "enable_thinking": true,
     "consolidation": {
-        "enabled": true,
-        "token_limit": 60000,
-        "keep_recent": 10
-      }
-  },
-  "providers": {
-    "active": "qwen",
-    "list": {
-      "qwen": {
-        "kind": "qwen",
-        "api_key": "sk-a44431e2a398451ea866e27e7e91ce10",
-        "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "model": "qwen3.5-plus"
-      }
+      "enabled": true,
+      "token_limit": 60000,
+      "keep_recent": 10
+    },
+    "retry": {
+      "enabled": true,
+      "max_retries": 3,
+      "initial_delay_ms": 1000,
+      "max_delay_ms": 30000
     }
   },
   "channels": {
+    "console": {
+      "enabled": true,
+      "prompt": "You\u003e",
+      "chat_id": "gateway",
+      "sender_id": "console-user",
+      "show_prefix": true
+    },
     "telegram": {
       "enabled": true,
       "token": "8709334288:AAGqEOJ5QP7hb6QU_oCFpmwoJFVXxcChpcw"
     }
   },
+  "providers": {
+    "active": "qwen",
+    "list": {
+      "deepseek": {
+        "kind": "deepseek",
+        "model": "deepseek-chat",
+        "api_key": "",
+        "api_base": "https://api.deepseek.com"
+      },
+      "ollama": {
+        "kind": "ollama",
+        "model": "llama3.2",
+        "api_key": "",
+        "api_base": "http://localhost:11434/v1"
+      },
+      "openai": {
+        "kind": "openai",
+        "model": "gpt-4o-mini",
+        "api_key": "",
+        "api_base": "https://api.openai.com/v1"
+      },
+      "qwen": {
+        "kind": "qwen",
+        "model": "qwen3.5-plus",
+        "api_key": "sk-a44431e2a398451ea866e27e7e91ce10",
+        "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      }
+    }
+  },
+  "tools": {
+    "web_search": {
+      "max_result": 10
+    },
+    "web_fetch": {
+      "max_chars": 50000
+    },
+    "exec": {
+      "timeout_seconds": 30
+    }
+  },
   "heartbeat": {
     "enabled": true,
     "interval_seconds": 10
+  },
+  "log": {
+    "level": "info",
+    "format": "text",
+    "output": "stderr"
   }
 }
