@@ -1,4 +1,4 @@
-import type { Bootstrap, ChatReply, CreateSessionPayload, DesktopApi, SessionDetail, SessionSummary } from "./types";
+import type { Bootstrap, ChatReply, CreateSessionPayload, DesktopApi, FileAttachment, SessionDetail, SessionSummary } from "./types";
 
 function getDesktopApi(): DesktopApi | undefined {
   return window.go?.main?.DesktopApp;
@@ -89,6 +89,14 @@ export function saveDesktopConfig(patch: Record<string, unknown>): Promise<Boots
   return call<Bootstrap>("SaveConfig", patch);
 }
 
-export function streamDesktopMessage(payload: { sessionKey: string; content: string }): Promise<ChatReply> {
+export function streamDesktopMessage(payload: {
+  sessionKey: string;
+  content: string;
+  attachments?: FileAttachment[];
+}): Promise<ChatReply> {
   return call<ChatReply>("StreamMessage", payload);
+}
+
+export function retryDesktopMessage(sessionKey: string): Promise<ChatReply> {
+  return call<ChatReply>("RetryMessage", sessionKey);
 }

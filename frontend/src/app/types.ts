@@ -22,8 +22,20 @@ export type SessionMessage = {
   role: string;
   content: string;
   createdAt: string;
+  thinking?: string;
   name?: string;
   toolCallId?: string;
+  attachments?: FileAttachment[];
+};
+
+export type FileAttachment = {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  preview?: string;
+  content?: string; // For text files
+  path?: string;
 };
 
 export type SessionDetail = {
@@ -37,6 +49,9 @@ export type ConfigShape = {
     max_tokens: number;
     temperature: number;
     enable_thinking: boolean;
+    reasoning_effort?: string;
+    reasoning_summary?: string;
+    text_verbosity?: string;
   };
   providers: {
     active: string;
@@ -72,6 +87,7 @@ export type StreamEvent = {
 export type SendMessagePayload = {
   sessionKey: string;
   content: string;
+  attachments?: FileAttachment[];
 };
 
 export type CreateSessionPayload = {
@@ -87,6 +103,7 @@ export type DesktopApi = {
   DeleteSession: (key: string) => Promise<void>;
   SaveConfig: (patch: Record<string, unknown>) => Promise<Bootstrap>;
   StreamMessage: (payload: SendMessagePayload) => Promise<ChatReply>;
+  RetryMessage: (sessionKey: string) => Promise<ChatReply>;
 };
 
 export type ThemeMode = "black" | "white";

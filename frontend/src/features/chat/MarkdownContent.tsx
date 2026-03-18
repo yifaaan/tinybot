@@ -299,6 +299,12 @@ function TableBlock({ headers, rows }: { headers: string[]; rows: string[][] }) 
 
 function CodeBlockView({ language, content }: { language: string; content: string }) {
   const [copied, setCopied] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const lines = content.split("\n");
+  const lineCount = lines.length;
+  const shouldCollapse = lineCount > 20;
+  const displayLines = collapsed ? lines.slice(0, 20) : lines;
+  const hiddenCount = collapsed ? lineCount - 20 : 0;
 
   useEffect(() => {
     if (!copied) {
@@ -321,7 +327,7 @@ function CodeBlockView({ language, content }: { language: string; content: strin
   };
 
   return (
-    <div className="md-code-shell">
+    <div className={`md-code-shell ${shouldCollapse ? "collapsible" : ""}`}>
       <div className="md-code-toolbar">
         <span className="md-code-window" aria-hidden="true">
           <span />
@@ -329,13 +335,34 @@ function CodeBlockView({ language, content }: { language: string; content: strin
           <span />
         </span>
         <span className="md-code-lang">{language || "text"}</span>
+        <span className="md-code-line-count">{lineCount} lines</span>
+        {shouldCollapse && (
+          <button
+            className="md-code-collapse"
+            onClick={() => setCollapsed((c) => !c)}
+            type="button">
+            {collapsed ? "Expand" : "Collapse"}
+          </button>
+        )}
         <button className="md-code-copy" onClick={handleCopy} type="button">
-          {copied ? "Copied" : "Copy"}
+          {copied ? "✓ Copied" : "Copy"}
         </button>
       </div>
-      <pre className="md-code-block">
-        <code>{content}</code>
+      <pre className={`md-code-block ${collapsed ? "collapsed" : ""}`}>
+        <code>
+          {displayLines.map((line, index) => (
+            <div key={index} className="md-code-line">
+              <span className="md-code-line-number">{index + 1}</span>
+              <span className="md-code-line-content">{line}</span>
+            </div>
+          ))}
+        </code>
       </pre>
+      {collapsed && hiddenCount > 0 && (
+        <button className="md-code-expand-hint" onClick={() => setCollapsed(false)} type="button">
+          +{hiddenCount} more lines
+        </button>
+      )}
     </div>
   );
 }
@@ -349,7 +376,8 @@ export function MarkdownContent({ content }: Props) {
         const key = `${block.type}-${index}`;
         switch (block.type) {
           case "heading": {
-            const Tag = `h${Math.min(block.depth, 4)}` as const;
+            const headingTags: Record<number, "h1" | "h2" | "h3" | "h4"> = { 1: "h1", 2: "h2", 3: "h3", 4: "h4" };
+            const Tag = headingTags[Math.min(block.depth, 4)] ?? "h4";
             return <Tag key={key}>{renderInline(parseInline(block.content))}</Tag>;
           }
           case "paragraph":

@@ -228,6 +228,8 @@ func isRetryable(err error) bool {
 	// 连接级错误
 	if strings.Contains(msg, "connection reset") ||
 		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "tls handshake timeout") ||
+		strings.Contains(msg, "i/o timeout") ||
 		strings.Contains(msg, "eof") {
 		return true
 	}

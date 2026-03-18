@@ -31,7 +31,7 @@ var _ chatservice.SessionRepository = (*FileSessionRepository)(nil)
 //
 // 为什么 cache 放在 repository 而不是 service：
 // - cache 是存储实现细节，不是聊天编排逻辑
-// - service 只应关心“拿到一个 session”，不应关心它来自内存还是磁盘
+// - service 只应关心"拿到一个 session"，不应关心它来自内存还是磁盘
 type FileSessionRepository struct {
 	WorkSpace  string
 	SessionDir string
@@ -52,7 +52,7 @@ type FileSessionRepository struct {
 // - *FileSessionRepository: 初始化后的 repository
 //
 // 构造时会尽量先创建 sessions 目录，原因是 direct chat/CLI 首次运行时不应该要求用户先手动建目录。
-// 当前实现选择“静默尝试创建”而不是把构造函数改成返回 error，是为了让组合根更简单。
+// 当前实现选择"静默尝试创建"而不是把构造函数改成返回 error，是为了让组合根更简单。
 //
 // TODO: 如果后续希望启动阶段对磁盘权限问题更敏感，可以把这里改成返回 (*FileSessionRepository, error)。
 func NewFileSessionRepository(workspace string) *FileSessionRepository {
@@ -85,7 +85,7 @@ func (m *FileSessionRepository) GetSessionPath(key string) string {
 
 // safeFilename 把不适合出现在文件名中的字符替换成下划线。
 //
-// 当前实现优先追求“路径稳定且跨平台可用”，而不是保留原始 key 的每个字符细节。
+// 当前实现优先追求"路径稳定且跨平台可用"，而不是保留原始 key 的每个字符细节。
 func safeFilename(name string) string {
 	return regexp.MustCompile(`[<>:"/\\|?*]`).ReplaceAllString(name, "_")
 }
@@ -100,7 +100,7 @@ func safeFilename(name string) string {
 // - *model.Session: 当前可用会话
 // - error: 上下文已取消等硬失败时返回错误
 //
-// 这里的关键设计取舍是“读取失败时尽量降级成新 session”，而不是让一次坏文件拖垮整个聊天流程。
+// 这里的关键设计取舍是"读取失败时尽量降级成新 session"，而不是让一次坏文件拖垮整个聊天流程。
 // 这和测试里的预期一致：损坏 JSONL 会回退到新会话，让 direct chat 仍然可用。
 //
 // FIXME: 当前实现会吞掉 LoadSession 的具体错误，虽然对可用性友好，但可观测性较差。
@@ -149,7 +149,7 @@ func (m *FileSessionRepository) GetOrCreateSession(ctx context.Context, key stri
 // 选择 JSONL 而不是一个大 JSON 数组，主要是为了：
 // - 文件更容易用肉眼查看
 // - 后续如果需要调试或做部分恢复，更容易直接按行检查
-// - 第一行单独放 metadata，也让“列 session 列表”这种操作更便宜
+// - 第一行单独放 metadata，也让"列 session 列表"这种操作更便宜
 //
 // LoadSession 负责把这个 JSONL 文件重新还原成领域层的 Session。
 //
@@ -244,7 +244,7 @@ func (m *FileSessionRepository) LoadSession(key string) (*model.Session, error) 
 // 返回：
 // - error: 写盘失败时返回错误
 //
-// 当前实现采用“整文件重写”而不是增量 append，原因是：
+// 当前实现采用"整文件重写"而不是增量 append，原因是：
 // - 第一阶段代码更简单，状态更容易推理
 // - metadata 和 messages 总能保持一致，不会因为半途中断留下难恢复状态
 // - 对 tinybot 当前规模来说，优先可读性和稳定性比写入性能更重要
@@ -314,7 +314,7 @@ func (m *FileSessionRepository) SaveSession(ctx context.Context, s *model.Sessio
 // 参数：
 // - key: session key
 //
-// 这个方法存在的意义是给“外部文件已变化”或“测试希望强制重读磁盘”这样的场景留一个明确入口。
+// 这个方法存在的意义是给"外部文件已变化"或"测试希望强制重读磁盘"这样的场景留一个明确入口。
 // 否则调用方只能隐式依赖进程重启才能看到最新磁盘状态。
 func (m *FileSessionRepository) Invalidate(key string) {
 	delete(m.cache, key)
@@ -331,48 +331,81 @@ func (m *FileSessionRepository) Invalidate(key string) {
 // - 只读 metadata 第一行比加载整份 transcript 更便宜
 //
 // 如果 metadata 行里没有 key，当前实现会从文件名推导一个回退 key。
-// 这是为了兼容早期或不完整数据，避免“列表命令因为老文件缺字段而直接失效”。
+// 这是为了兼容早期或不完整数据，避免"列表命令因为老文件缺字段而直接失效"。
 func (m *FileSessionRepository) ListSessions() ([]map[string]any, error) {
 	filenames, err := filepath.Glob(filepath.Join(m.SessionDir, "*.jsonl"))
 	if err != nil {
 		return nil, err
 	}
 
-	sessions := make([]map[string]any, 0)
+	sessions := make([]map[string]any, 0, len(filenames))
 	for _, filename := range filenames {
 		f, err := os.Open(filename)
 		if err != nil {
-			return nil, err
+			continue // Skip files we cannot read
 		}
 
 		reader := bufio.NewReader(f)
-		firstLine, err := reader.ReadString('\n')
-		if err != nil {
-			_ = f.Close()
-			return nil, err
+		metadata := make(map[string]any)
+		key := ""
+		createdAt := ""
+		updatedAt := ""
+		messageCount := 0
+		firstUserContent := ""
+
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				break
+			}
+
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+
+			data := make(map[string]any)
+			if err := json.Unmarshal([]byte(line), &data); err != nil {
+				break
+			}
+
+			if typ, _ := data["_type"].(string); typ == "metadata" {
+				key, _ = data["key"].(string)
+				createdAt, _ = data["created_at"].(string)
+				updatedAt, _ = data["updated_at"].(string)
+				if md, ok := data["metadata"].(map[string]any); ok {
+					metadata = md
+				}
+				continue
+			}
+
+			// Count messages and capture first user message
+			messageCount++
+			if role, _ := data["role"].(string); role == "user" && firstUserContent == "" {
+				if content, ok := data["content"].(string); ok {
+					firstUserContent = content
+				}
+			}
 		}
 		_ = f.Close()
 
-		firstLine = strings.TrimSpace(firstLine)
-		if firstLine != "" {
-			data := make(map[string]any)
-			if err := json.Unmarshal([]byte(firstLine), &data); err != nil {
-				return nil, err
-			}
-			if typ, _ := data["_type"].(string); typ == "metadata" {
-				key, ok := data["key"].(string)
-				if !ok {
-					stem := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
-					key = strings.Replace(stem, "_", ":", 1)
-				}
-				sessions = append(sessions, map[string]any{
-					"key":        key,
-					"created_at": data["created_at"],
-					"updated_at": data["updated_at"],
-					"path":       filename,
-				})
-			}
+		if key == "" {
+			stem := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+			key = strings.Replace(stem, "_", ":", 1)
 		}
+
+		sessions = append(sessions, map[string]any{
+			"key":               key,
+			"created_at":        createdAt,
+			"updated_at":        updatedAt,
+			"metadata":          metadata,
+			"path":              filename,
+			"message_count":     messageCount,
+			"first_user_content": firstUserContent,
+		})
 	}
 	sort.Slice(sessions, func(i, j int) bool {
 		ti, errI := time.Parse(time.RFC3339, fmt.Sprint(sessions[i]["updated_at"]))

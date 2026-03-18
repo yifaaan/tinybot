@@ -7,6 +7,9 @@ export const mockBootstrap: Bootstrap = {
       max_tokens: 8192,
       temperature: 0.7,
       enable_thinking: true,
+      reasoning_effort: "high",
+      reasoning_summary: "detailed",
+      text_verbosity: "medium",
     },
     providers: {
       active: "qwen",

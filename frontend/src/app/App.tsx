@@ -7,6 +7,7 @@ import {
   getErrorMessage,
   getSessionDetail,
   renameDesktopSession,
+  retryDesktopMessage,
   saveDesktopConfig,
   streamDesktopMessage,
   subscribeStream,
@@ -14,7 +15,7 @@ import {
 } from "./desktopApi";
 import { mockBootstrap, mockDetail } from "./mockData";
 import { useTheme } from "./providers/ThemeProvider";
-import type { Bootstrap, ProviderInfo, SessionDetail, SessionMessage, SessionSummary, StreamEvent } from "./types";
+import type { Bootstrap, FileAttachment, ProviderInfo, SessionDetail, SessionMessage, SessionSummary, StreamEvent } from "./types";
 import { AssistantsPane } from "../features/assistants/AssistantsPane";
 import { ChatWorkspace } from "../features/chat/ChatWorkspace";
 import { RailNav } from "../features/navigation/RailNav";
@@ -22,9 +23,12 @@ import { SettingsDrawer } from "../features/settings/SettingsDrawer";
 import type { ProviderDraft } from "../features/settings/SettingsDrawer";
 import { RenameDialog } from "../features/topics/RenameDialog";
 import { TopicsPane } from "../features/topics/TopicsPane";
+import { ResizablePanel } from "../features/layout/ResizablePanel";
 
 const NEW_SESSION_TITLE = "Untitled desktop chat";
 type StreamPhase = "idle" | "thinking" | "replying";
+const ASSISTANTS_PANEL_KEY = "tinybot:assistants-width";
+const TOPICS_PANEL_KEY = "tinybot:topics-width";
 
 function summaryProviderName(summary: SessionSummary | undefined, fallbackProviderName: string): string {
   return summary?.providerName?.trim() || fallbackProviderName;
@@ -72,16 +76,17 @@ function ensureSession(
   };
 }
 
-function replaceLastAssistant(messages: SessionMessage[], content: string): SessionMessage[] {
+function replaceLastAssistant(messages: SessionMessage[], content: string, thinking?: string): SessionMessage[] {
   const next = messages.slice();
   const last = next[next.length - 1];
   if (last && last.role === "assistant") {
-    next[next.length - 1] = { ...last, content };
+    next[next.length - 1] = { ...last, content, ...(thinking !== undefined ? { thinking } : {}) };
     return next;
   }
   next.push({
     role: "assistant",
     content,
+    ...(thinking !== undefined ? { thinking } : {}),
     createdAt: new Date().toISOString(),
   });
   return next;
@@ -99,7 +104,10 @@ export function App() {
   );
   const [assistantsOpen, setAssistantsOpen] = useState(true);
   const [topicsOpen, setTopicsOpen] = useState(true);
+  const [assistantsWidth, setAssistantsWidth] = useState(248);
+  const [topicsWidth, setTopicsWidth] = useState(286);
   const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<SessionSummary | null>(null);
   const [busy, setBusy] = useState(false);
@@ -107,6 +115,8 @@ export function App() {
   const [thinkingText, setThinkingText] = useState("");
   const [thinkingTarget, setThinkingTarget] = useState("");
   const [streamPhase, setStreamPhase] = useState<StreamPhase>("idle");
+  const [replyBuffer, setReplyBuffer] = useState("");
+  const [thinkingDone, setThinkingDone] = useState(false);
 
   const currentProvider = useMemo(
     () => bootstrap.providers.find((provider) => provider.name === selectedProviderName) ?? bootstrap.providers[0] ?? null,
@@ -268,6 +278,7 @@ export function App() {
       if (payload.kind === "thinking") {
         setThinkingTarget((previous) => `${previous}${payload.delta ?? ""}`);
         setStreamPhase("thinking");
+        setThinkingDone(false);
         setNotice("Thinking...");
         return;
       }
@@ -276,6 +287,8 @@ export function App() {
         setStreamPhase("idle");
         setThinkingTarget("");
         setThinkingText("");
+        setReplyBuffer("");
+        setThinkingDone(false);
         setNotice(message);
         setSelectedSession((previous) => {
           const ensured = ensureSession(currentSummary, previous, activeSessionKey, activeProviderName);
@@ -288,23 +301,52 @@ export function App() {
         return;
       }
       if (payload.kind === "delta" || payload.kind === "done") {
+        const text = payload.kind === "done" ? payload.content ?? "" : payload.delta ?? "";
+
+        // If we're still in thinking phase, buffer the reply content
+        if (payload.kind === "delta" && !thinkingDone && streamPhase === "thinking") {
+          setReplyBuffer((previous) => `${previous}${text}`);
+          return;
+        }
+
+        // Thinking is done, switch to replying phase
         if (payload.kind === "delta") {
           setStreamPhase("replying");
+          setThinkingDone(true);
           setNotice("Responding...");
         }
-        const text = payload.kind === "done" ? payload.content ?? "" : payload.delta ?? "";
+
+        // Combine buffered content with current text
         setSelectedSession((previous) => {
           const ensured = ensureSession(currentSummary, previous, activeSessionKey, activeProviderName);
           const currentText = ensured.messages[ensured.messages.length - 1]?.content ?? "";
-          const merged = payload.kind === "done" ? text : `${currentText}${text}`;
+          const bufferedText = replyBuffer + text;
+          const merged = payload.kind === "done" ? text : `${currentText}${bufferedText}`;
           return {
             ...ensured,
             messages: replaceLastAssistant(ensured.messages, merged),
           };
         });
+        // Clear the buffer after using it
+        if (replyBuffer) {
+          setReplyBuffer("");
+        }
       }
       if (payload.kind === "done") {
         setStreamPhase("idle");
+        setThinkingDone(false);
+        setReplyBuffer("");
+        const finalThinking = thinkingTarget.trim() || thinkingText.trim();
+        if (finalThinking !== "") {
+          setSelectedSession((previous) => {
+            const ensured = ensureSession(currentSummary, previous, activeSessionKey, activeProviderName);
+            const currentText = ensured.messages[ensured.messages.length - 1]?.content ?? "";
+            return {
+              ...ensured,
+              messages: replaceLastAssistant(ensured.messages, currentText, finalThinking),
+            };
+          });
+        }
         setThinkingTarget("");
         setThinkingText("");
         setNotice("Stream complete");
@@ -323,6 +365,11 @@ export function App() {
     selectedSession?.summary.key,
     selectedSession?.summary.providerName,
     selectedSessionKey,
+    streamPhase,
+    thinkingDone,
+    replyBuffer,
+    thinkingTarget,
+    thinkingText,
   ]);
 
   const handleCreateSession = useCallback(async () => {
@@ -527,6 +574,9 @@ export function App() {
         temperature: Number(data.get("temperature") ?? bootstrap.config.agents.temperature),
         maxTokens: Number(data.get("maxTokens") ?? bootstrap.config.agents.max_tokens),
         enableThinking: data.get("enableThinking") === "on",
+        reasoningEffort: String(data.get("reasoningEffort") ?? bootstrap.config.agents.reasoning_effort ?? "high"),
+        reasoningSummary: String(data.get("reasoningSummary") ?? bootstrap.config.agents.reasoning_summary ?? "detailed"),
+        textVerbosity: String(data.get("textVerbosity") ?? bootstrap.config.agents.text_verbosity ?? "medium"),
         consoleEnabled: data.get("consoleEnabled") === "on",
         providers: providerPatches,
       };
@@ -542,6 +592,9 @@ export function App() {
               temperature: patch.temperature,
               max_tokens: patch.maxTokens,
               enable_thinking: patch.enableThinking,
+              reasoning_effort: patch.reasoningEffort,
+              reasoning_summary: patch.reasoningSummary,
+              text_verbosity: patch.textVerbosity,
             },
             providers: {
               active: patch.activeProvider,
@@ -589,17 +642,60 @@ export function App() {
     [bootstrap.config, bootstrap.sessions, selectedSessionKey, setTheme],
   );
 
+  const handleUpdateModelControls = useCallback(
+    async (patch: { reasoningEffort?: string; reasoningSummary?: string; textVerbosity?: string }) => {
+      const nextPatch = {
+        ...(patch.reasoningEffort ? { reasoningEffort: patch.reasoningEffort } : {}),
+        ...(patch.reasoningSummary ? { reasoningSummary: patch.reasoningSummary } : {}),
+        ...(patch.textVerbosity ? { textVerbosity: patch.textVerbosity } : {}),
+      };
+
+      if (Object.keys(nextPatch).length === 0) {
+        return;
+      }
+
+      const api = await waitForDesktopApi(250);
+      if (!api) {
+        setBootstrap((previous) => ({
+          ...previous,
+          config: {
+            ...previous.config,
+            agents: {
+              ...previous.config.agents,
+              ...(patch.reasoningEffort ? { reasoning_effort: patch.reasoningEffort } : {}),
+              ...(patch.reasoningSummary ? { reasoning_summary: patch.reasoningSummary } : {}),
+              ...(patch.textVerbosity ? { text_verbosity: patch.textVerbosity } : {}),
+            },
+          },
+        }));
+        setNotice("Response controls updated");
+        return;
+      }
+
+      const updated = await saveDesktopConfig(nextPatch);
+      setBootstrap(updated);
+      setNotice("Response controls updated");
+    },
+    [],
+  );
+
   const handleSend = useCallback(async () => {
     const content = draft.trim();
-    if (!content || busy) {
+    const hasAttachments = attachments.length > 0;
+
+    // Allow sending if there's content OR attachments
+    if ((!content && !hasAttachments) || busy) {
       return;
     }
+
+    // If only attachments without text, add placeholder
+    const messageContent = content || "[Attachment]";
 
     const providerName = selectedProviderName || bootstrap.config.providers.active || bootstrap.providers[0]?.name || "";
     const sessionKey = await ensureActiveSession();
     const userMessage: SessionMessage = {
       role: "user",
-      content,
+      content: messageContent,
       createdAt: new Date().toISOString(),
     };
     const assistantPlaceholder: SessionMessage = {
@@ -613,6 +709,8 @@ export function App() {
     setNotice("Streaming reply");
     setThinkingText("");
     setThinkingTarget("");
+    setReplyBuffer("");
+    setThinkingDone(false);
     setStreamPhase("thinking");
     setSelectedSession((previous) => {
       const ensured = ensureSession(currentSummary, previous, sessionKey, providerName);
@@ -641,10 +739,11 @@ export function App() {
     }
 
     try {
-      const reply = await streamDesktopMessage({ sessionKey, content });
+      const reply = await streamDesktopMessage({ sessionKey, content: messageContent, attachments });
       if (!reply || typeof reply.content !== "string") {
         throw new Error("StreamMessage returned no reply payload");
       }
+      setAttachments([]);
       setSelectedSessionKey(sessionKey);
       setSelectedSession((previous) => {
         const ensured = ensureSession(currentSummary, previous, sessionKey, providerName);
@@ -659,12 +758,16 @@ export function App() {
       setStreamPhase("idle");
       setThinkingTarget("");
       setThinkingText("");
+      setReplyBuffer("");
+      setThinkingDone(false);
       setBusy(false);
     } catch (error) {
       const message = `Send failed: ${getErrorMessage(error)}`;
       setStreamPhase("idle");
       setThinkingTarget("");
       setThinkingText("");
+      setReplyBuffer("");
+      setThinkingDone(false);
       setNotice(message);
       setSelectedSession((previous) => {
         const ensured = ensureSession(currentSummary, previous, sessionKey, providerName);
@@ -685,19 +788,120 @@ export function App() {
     refreshBootstrap,
     refreshSession,
     selectedProviderName,
+    attachments,
   ]);
+
+  const handleRetry = useCallback(async () => {
+    if (busy || !selectedSessionKey) {
+      return;
+    }
+
+    const providerName = selectedProviderName || bootstrap.config.providers.active || bootstrap.providers[0]?.name || "";
+    const sessionKey = selectedSessionKey;
+
+    setBusy(true);
+    setNotice("Retrying...");
+    setThinkingText("");
+    setThinkingTarget("");
+    setReplyBuffer("");
+    setThinkingDone(false);
+    setStreamPhase("thinking");
+
+    const api = await waitForDesktopApi(250);
+    if (!api) {
+      setNotice("Mock mode - retry not available");
+      setStreamPhase("idle");
+      setBusy(false);
+      return;
+    }
+
+    try {
+      const reply = await retryDesktopMessage(sessionKey);
+      if (!reply || typeof reply.content !== "string") {
+        throw new Error("RetryMessage returned no reply payload");
+      }
+      await refreshSession(sessionKey);
+      setNotice("Retry complete");
+      setStreamPhase("idle");
+      setThinkingTarget("");
+      setThinkingText("");
+      setReplyBuffer("");
+      setThinkingDone(false);
+      setBusy(false);
+    } catch (error) {
+      const message = `Retry failed: ${getErrorMessage(error)}`;
+      setStreamPhase("idle");
+      setThinkingTarget("");
+      setThinkingText("");
+      setReplyBuffer("");
+      setThinkingDone(false);
+      setNotice(message);
+      setBusy(false);
+    }
+  }, [
+    bootstrap.config.providers.active,
+    bootstrap.providers,
+    busy,
+    refreshSession,
+    selectedProviderName,
+    selectedSessionKey,
+  ]);
+
+  const handleClear = useCallback(() => {
+    if (!selectedSessionKey) {
+      return;
+    }
+    setSelectedSession((previous) => {
+      if (!previous || previous.summary.key !== selectedSessionKey) {
+        return previous;
+      }
+      return {
+        ...previous,
+        messages: [],
+        summary: {
+          ...previous.summary,
+          messageCount: 0,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    });
+    setNotice("Conversation cleared");
+  }, [selectedSessionKey]);
+
+  const handleExport = useCallback(() => {
+    if (!selectedSession) {
+      return;
+    }
+    const exportData = {
+      title: selectedSession.summary.title,
+      exportedAt: new Date().toISOString(),
+      messages: selectedSession.messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+        createdAt: msg.createdAt,
+      })),
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${selectedSession.summary.title.replace(/[^a-zA-Z0-9]/g, "_")}-${Date.now()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setNotice("Conversation exported");
+  }, [selectedSession]);
 
   const shellColumns = useMemo(() => {
     const columns = ["64px"];
     if (assistantsOpen) {
-      columns.push("248px");
+      columns.push(`${assistantsWidth}px`);
     }
     if (topicsOpen) {
-      columns.push("286px");
+      columns.push(`${topicsWidth}px`);
     }
     columns.push("minmax(0, 1fr)");
     return columns.join(" ");
-  }, [assistantsOpen, topicsOpen]);
+  }, [assistantsOpen, assistantsWidth, topicsOpen, topicsWidth]);
 
   return (
     <div className="app-shell">
@@ -709,36 +913,61 @@ export function App() {
           topicCount={filteredSessions.length}
         />
         {assistantsOpen && (
-          <AssistantsPane
-            onSelectProvider={handleProviderSelect}
-            providers={bootstrap.providers}
-            selectedProviderName={selectedProviderName}
-            sessionCounts={providerSessionCounts}
-          />
+          <ResizablePanel
+            defaultWidth={248}
+            minWidth={180}
+            maxWidth={400}
+            storageKey="tinybot-assistants-width"
+            side="left"
+            onResize={setAssistantsWidth}>
+            <AssistantsPane
+              onSelectProvider={handleProviderSelect}
+              providers={bootstrap.providers}
+              selectedProviderName={selectedProviderName}
+              sessionCounts={providerSessionCounts}
+            />
+          </ResizablePanel>
         )}
         {topicsOpen && (
-          <TopicsPane
-            onCreateSession={handleCreateSession}
-            onDeleteSession={handleDeleteSession}
-            onRenameSession={handleRenameSession}
-            onSelectSession={handleSelectSession}
-            provider={currentProvider}
-            selectedSessionKey={selectedSessionKey}
-            sessions={filteredSessions}
-          />
+          <ResizablePanel
+            defaultWidth={286}
+            minWidth={200}
+            maxWidth={450}
+            storageKey="tinybot-topics-width"
+            side="left"
+            onResize={setTopicsWidth}>
+            <TopicsPane
+              onCreateSession={handleCreateSession}
+              onDeleteSession={handleDeleteSession}
+              onRenameSession={handleRenameSession}
+              onSelectSession={handleSelectSession}
+              provider={currentProvider}
+              selectedSessionKey={selectedSessionKey}
+              sessions={filteredSessions}
+            />
+          </ResizablePanel>
         )}
         <ChatWorkspace
           assistantsOpen={assistantsOpen}
+          attachments={attachments}
           busy={busy}
           draft={draft}
           notice={notice}
+          reasoningEffort={bootstrap.config.agents.reasoning_effort ?? "high"}
+          reasoningSummary={bootstrap.config.agents.reasoning_summary ?? "detailed"}
+          textVerbosity={bootstrap.config.agents.text_verbosity ?? "medium"}
+          onClear={handleClear}
           onDelete={handleDelete}
           onDraftChange={setDraft}
+          onAttachmentsChange={setAttachments}
+          onExport={handleExport}
           onOpenSettings={() => setSettingsOpen(true)}
           onRename={handleRename}
+          onRetry={handleRetry}
           onSend={handleSend}
           onToggleAssistants={() => setAssistantsOpen((current) => !current)}
           onToggleTopics={() => setTopicsOpen((current) => !current)}
+          onUpdateModelControls={handleUpdateModelControls}
           provider={currentProvider}
           session={selectedSession}
           streamPhase={streamPhase}

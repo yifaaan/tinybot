@@ -152,7 +152,7 @@ func (s *Service) processTurn(ctx context.Context, msg model.InboundMessage, cal
 		setter.SetMessageContext(msg.Channel, msg.ChatID)
 	}
 
-	llmMessages := s.prompts.BuildMessages(session.GetHistory(500), msg.Content, msg.SelectedSkills)
+	llmMessages := s.prompts.BuildMessages(session.GetHistory(500), msg.Content, msg.SelectedSkills, msg.MediaURLs)
 	trace := []traceMessage{{
 		role:    model.RoleUser,
 		content: msg.Content,
@@ -333,9 +333,11 @@ func (s *Service) ProcessMessageStream(ctx context.Context, msg model.InboundMes
 
 	return s.processTurn(ctx, msg, func(ctx context.Context, messages []map[string]any, tools []map[string]any) (model.LLMResponse, error) {
 		var resp *model.LLMResponse
+		streamedThinking := false
 		for event := range streamer.ChatStream(ctx, messages, tools, s.maxTokens, s.temperature) {
 			switch event.Kind {
 			case model.StreamEventThinking:
+				streamedThinking = true
 				if onThinking != nil {
 					onThinking(event.Delta)
 				}
@@ -351,6 +353,9 @@ func (s *Service) ProcessMessageStream(ctx context.Context, msg model.InboundMes
 		}
 		if resp == nil {
 			return model.LLMResponse{}, errors.New("stream ended without response")
+		}
+		if !streamedThinking && resp.Thinking != "" && onThinking != nil {
+			onThinking(resp.Thinking)
 		}
 		return *resp, nil
 	})

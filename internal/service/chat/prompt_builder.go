@@ -113,21 +113,39 @@ func NewPromptBuilder(workspacePath string, bootstrap BootstrapReader, memory Me
 // 返回：
 // - []map[string]any: provider 可直接消费的消息序列
 //
-// 为什么这里总是“system -> history -> current user”这个顺序：
+//
+// 为什么这里总是"system -> history -> current user"这个顺序：
 // - system prompt 需要先出现，保证工作区规则优先于历史内容
 // - 历史消息次之，保证对话连续性
 // - 当前输入最后追加，保证模型把这一轮问题当作最新上下文
-func (b *Builder) BuildMessages(history []*model.Message, currentMessage string, skillNames []string) []map[string]any {
+func (b *Builder) BuildMessages(history []*model.Message, currentMessage string, skillNames []string, mediaURLs []string) []map[string]any {
 	messages := make([]map[string]any, 0, len(history)+2)
 	messages = append(messages, map[string]any{
 		"role":    model.RoleSystem,
 		"content": b.BuildSystemPrompt(skillNames),
 	})
 	messages = append(messages, toLLMMessages(history)...)
-	messages = append(messages, map[string]any{
-		"role":    model.RoleUser,
-		"content": currentMessage,
-	})
+
+	// Build user message with optional media content
+	userMsg := map[string]any{
+		"role": model.RoleUser,
+	}
+	if len(mediaURLs) > 0 {
+		// Multimodal message with images
+		content := []map[string]any{
+			{"type": "text", "text": currentMessage},
+		}
+		for _, url := range mediaURLs {
+			content = append(content, map[string]any{
+				"type":      "image_url",
+				"image_url": map[string]any{"url": url},
+			})
+		}
+		userMsg["content"] = content
+	} else {
+		userMsg["content"] = currentMessage
+	}
+	messages = append(messages, userMsg)
 	return messages
 }
 

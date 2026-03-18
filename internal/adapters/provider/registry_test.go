@@ -19,11 +19,11 @@ func (f *fakeClient) Chat(ctx context.Context, messages []map[string]any, tools 
 // TestRegistry_Create_Known —— 注册已知 kind，Create 应该成功
 func TestRegistry_Create_Known(t *testing.T) {
 	r := NewRegistry()
-	r.Register("test", func(apiKey, apiBase, model string, enableThinking bool) (chat.CompletionClient, error) {
+	r.Register("test", func(apiKey, apiBase, model string, options Options) (chat.CompletionClient, error) {
 		return &fakeClient{}, nil
 	})
 
-	client, err := r.Create("test", "key", "base", "model", false)
+	client, err := r.Create("test", "key", "base", "model", Options{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestRegistry_Create_Known(t *testing.T) {
 // TestRegistry_Create_Unknown —— 未注册的 kind，Create 应该返回错误
 func TestRegistry_Create_Unknown(t *testing.T) {
 	r := NewRegistry()
-	_, err := r.Create("nonexistent", "key", "base", "model", false)
+	_, err := r.Create("nonexistent", "key", "base", "model", Options{})
 	if err == nil {
 		t.Fatal("expected error for unknown provider kind")
 	}
@@ -48,14 +48,14 @@ func TestRegistry_Create_Unknown(t *testing.T) {
 func TestDefaultRegistry_HasBuiltins(t *testing.T) {
 	r := DefaultRegistry()
 
-	for _, kind := range []string{"openai", "qwen", "deepseek"} {
-		_, err := r.Create(kind, "", "", "", false)
+	for _, kind := range []string{"openai", "openai-responses", "qwen", "deepseek"} {
+		_, err := r.Create(kind, "", "", "", Options{})
 		if err == nil {
 			t.Fatalf("expected error for missing API key when creating provider %q", kind)
 		}
 	}
 
-	ollamaClient, err := r.Create("ollama", "", "", "", false)
+	ollamaClient, err := r.Create("ollama", "", "", "", Options{})
 	if err != nil {
 		t.Fatalf("unexpected error creating ollama provider: %v", err)
 	}
@@ -67,10 +67,10 @@ func TestDefaultRegistry_HasBuiltins(t *testing.T) {
 // TestRegistry_Register_Override —— 重复注册应该覆盖旧工厂
 func TestRegistry_Register_Override(t *testing.T) {
 	r := NewRegistry()
-	factoryA := func(apiKey, apiBase, model string, enableThinking bool) (chat.CompletionClient, error) {
+	factoryA := func(apiKey, apiBase, model string, options Options) (chat.CompletionClient, error) {
 		return &fakeClient{}, nil
 	}
-	factoryB := func(apiKey, apiBase, model string, enableThinking bool) (chat.CompletionClient, error) {
+	factoryB := func(apiKey, apiBase, model string, options Options) (chat.CompletionClient, error) {
 		return &fakeClient{}, nil
 	}
 	r.Register("x", factoryA)

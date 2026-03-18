@@ -92,19 +92,32 @@ func (s *Service) ListSessions(ctx context.Context) ([]SessionSummary, error) {
 	summaries := make([]SessionSummary, 0, len(list))
 	for _, item := range list {
 		key, _ := item["key"].(string)
-		session, err := repo.LoadSession(key)
-		if err != nil {
-			summaries = append(summaries, SessionSummary{
-				Key:          key,
-				Title:        key,
-				ProviderName: fallbackProvider,
-				Channel:      sessionChannel(key),
-				CreatedAt:    parseMapTime(item, "created_at"),
-				UpdatedAt:    parseMapTime(item, "updated_at"),
-			})
-			continue
+		metadata, _ := item["metadata"].(map[string]any)
+		messageCount, _ := item["message_count"].(int)
+		firstUserContent, _ := item["first_user_content"].(string)
+
+		// Get title from metadata or generate from first user message
+		title := strings.TrimSpace(asString(metadata["title"]))
+		if title == "" && firstUserContent != "" {
+			title = truncate(firstUserContent, 48)
 		}
-		summaries = append(summaries, buildSessionSummary(session, fallbackProvider))
+		if title == "" {
+			title = key
+		}
+
+		// Get provider name from metadata or use fallback
+		providerName := sessionProviderName(metadata, fallbackProvider)
+
+		summaries = append(summaries, SessionSummary{
+			Key:          key,
+			Title:        title,
+			Preview:      truncate(firstUserContent, 120),
+			ProviderName: providerName,
+			Channel:      sessionChannel(key),
+			MessageCount: messageCount,
+			CreatedAt:    parseMapTime(item, "created_at"),
+			UpdatedAt:    parseMapTime(item, "updated_at"),
+		})
 	}
 	return summaries, nil
 }
@@ -138,6 +151,7 @@ func (s *Service) GetSession(ctx context.Context, key string) (SessionDetail, er
 			Role:       msg.Role,
 			Content:    msg.Content,
 			CreatedAt:  msg.CreatedAt,
+			Thinking:   msg.Thinking,
 			Name:       msg.Name,
 			ToolCallID: msg.ToolCallID,
 		})
@@ -299,15 +313,75 @@ func (s *Service) StreamMessage(ctx context.Context, req SendMessageRequest, sin
 	return out, nil
 }
 
+func (s *Service) RetryMessage(ctx context.Context, sessionKey string, sink EventSink) (ChatReply, error) {
+	key := sessionKeyOrDefault(sessionKey)
+	repo := s.newSessionRepo(s.workspace)
+
+	session, err := repo.LoadSession(key)
+	if err != nil {
+		return ChatReply{}, fmt.Errorf("retry message load session: %w", err)
+	}
+
+	var lastUserContent string
+	var messagesToRemove int
+	for i := len(session.Messages) - 1; i >= 0; i-- {
+		msg := session.Messages[i]
+		if msg == nil {
+			continue
+		}
+		if msg.Role == model.RoleUser {
+			lastUserContent = strings.TrimSpace(msg.Content)
+			messagesToRemove = len(session.Messages) - i - 1
+			break
+		}
+	}
+
+	if lastUserContent == "" {
+		return ChatReply{}, errors.New("retry message: no user message found")
+	}
+
+	session.Messages = session.Messages[:len(session.Messages)-messagesToRemove]
+	session.UpdatedAt = s.now()
+	if err := repo.SaveSession(ctx, session); err != nil {
+		return ChatReply{}, fmt.Errorf("retry message save session: %w", err)
+	}
+
+	return s.StreamMessage(ctx, SendMessageRequest{
+		SessionKey: key,
+		Content:    lastUserContent,
+	}, sink)
+}
+
 func (s *Service) buildInboundMessage(req SendMessageRequest) model.InboundMessage {
 	key := sessionKeyOrDefault(req.SessionKey)
 	now := s.now()
+
+	// Extract image previews (base64 data URLs) for multimodal support
+	var mediaURLs []string
+	var textAttachments []string
+	for _, att := range req.Attachments {
+		if att.Preview != "" && strings.HasPrefix(att.Preview, "data:image/") {
+			mediaURLs = append(mediaURLs, att.Preview)
+		}
+		// For text files, include content in the message
+		if att.Content != "" {
+			textAttachments = append(textAttachments, fmt.Sprintf("### %s\n\n%s", att.Name, att.Content))
+		}
+	}
+
+	// Build content with text attachments
+	content := strings.TrimSpace(req.Content)
+	if len(textAttachments) > 0 {
+		content = content + "\n\n---\n\n" + strings.Join(textAttachments, "\n\n---\n\n")
+	}
+
 	return model.InboundMessage{
 		ID:             fmt.Sprintf("desktop-%d", now.UnixNano()),
 		Channel:        model.ChannelDesktop,
 		SenderID:       "desktop-user",
 		ChatID:         "desktop",
-		Content:        strings.TrimSpace(req.Content),
+		Content:        content,
+		MediaURLs:      mediaURLs,
 		SelectedSkills: append([]string(nil), req.SelectedSkills...),
 		CreatedAt:      now,
 		SessionKeyOverride: func() *string {
@@ -361,6 +435,15 @@ func applyConfigPatch(cfg *app.Config, patch ConfigPatch) {
 	}
 	if patch.EnableThinking != nil {
 		cfg.Agents.EnableThinking = *patch.EnableThinking
+	}
+	if patch.ReasoningEffort != nil {
+		cfg.Agents.ReasoningEffort = strings.TrimSpace(*patch.ReasoningEffort)
+	}
+	if patch.ReasoningSummary != nil {
+		cfg.Agents.ReasoningSummary = strings.TrimSpace(*patch.ReasoningSummary)
+	}
+	if patch.TextVerbosity != nil {
+		cfg.Agents.TextVerbosity = strings.TrimSpace(*patch.TextVerbosity)
 	}
 	if patch.HeartbeatEnabled != nil {
 		cfg.Heartbeat.Enabled = *patch.HeartbeatEnabled

@@ -151,6 +151,7 @@ func convertMessages(messages []map[string]any) ([]openai.ChatCompletionMessageP
 	for _, message := range messages {
 		role := stringValue(message["role"])
 		content := stringValue(message["content"])
+		contentArray, _ := message["content"].([]map[string]any)
 
 		switch role {
 		case "system":
@@ -208,7 +209,28 @@ func convertMessages(messages []map[string]any) ([]openai.ChatCompletionMessageP
 			}
 			converted = append(converted, openai.ToolMessage(content, toolCallID))
 		default:
-			converted = append(converted, openai.UserMessage(content))
+			// Handle multimodal content (text + images)
+			if len(contentArray) > 0 {
+				parts := make([]openai.ChatCompletionContentPartUnionParam, 0, len(contentArray))
+				for _, part := range contentArray {
+					partType := stringValue(part["type"])
+					switch partType {
+					case "text":
+						parts = append(parts, openai.TextContentPart(stringValue(part["text"])))
+					case "image_url":
+						imageURLData, _ := part["image_url"].(map[string]any)
+						imageURL := stringValue(imageURLData["url"])
+						if imageURL != "" {
+							parts = append(parts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+								URL: imageURL,
+							}))
+						}
+					}
+				}
+				converted = append(converted, openai.UserMessage(parts))
+			} else {
+				converted = append(converted, openai.UserMessage(content))
+			}
 		}
 	}
 

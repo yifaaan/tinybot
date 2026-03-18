@@ -102,10 +102,11 @@ type PromptBuilder interface {
 	// - history: 历史消息
 	// - currentMessage: 当前用户输入
 	// - skillNames: 当前轮显式选中的技能名；当前实现保留了这个入口，但尚未真正使用
+	// - mediaURLs: 多模态内容URL列表（如图片base64数据URL）
 	//
 	// 返回：
 	// - []map[string]any: 提供给模型的消息序列
-	BuildMessages(history []*model.Message, currentMessage string, skillNames []string) []map[string]any
+	BuildMessages(history []*model.Message, currentMessage string, skillNames []string, mediaURLs []string) []map[string]any
 
 	// AddAssistantMessage 把 assistant 的普通回复或 tool-call 痕迹追加到消息列表。
 	//

@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { Bootstrap, ThemeMode } from "../../app/types";
 
 export type ProviderDraft = {
+  id: string;
   name: string;
   kind: string;
   model: string;
@@ -22,11 +23,16 @@ type Props = {
 };
 
 export function SettingsDrawer({ open, bootstrap, theme, onThemeChange, onSave, onClose }: Props) {
+  const providerKinds = ["openai", "openai-responses", "qwen", "deepseek", "ollama"];
+  const reasoningEfforts = ["low", "medium", "high"];
+  const reasoningSummaries = ["off", "auto", "concise", "detailed"];
+  const textVerbosityLevels = ["low", "medium", "high"];
   const [providerDrafts, setProviderDrafts] = useState<ProviderDraft[]>([]);
 
   useEffect(() => {
     setProviderDrafts(
       bootstrap.providers.map((provider) => ({
+        id: `provider-${provider.name}`,
         name: provider.name,
         kind: provider.kind,
         model: provider.model,
@@ -60,10 +66,27 @@ export function SettingsDrawer({ open, bootstrap, theme, onThemeChange, onSave, 
     setProviderDrafts((current) => [
       ...current,
       {
+        id: `custom-${Date.now()}-${current.length}`,
         name: "",
         kind: "openai",
         model: "",
         apiBase: "",
+        apiKey: "",
+        configured: false,
+        isCustom: true,
+      },
+    ]);
+  };
+
+  const handleAddResponsesProvider = () => {
+    setProviderDrafts((current) => [
+      ...current,
+      {
+        id: `responses-${Date.now()}-${current.length}`,
+        name: "",
+        kind: "openai-responses",
+        model: "",
+        apiBase: "https://codex-api.packycode.com/v1",
         apiKey: "",
         configured: false,
         isCustom: true,
@@ -148,18 +171,68 @@ export function SettingsDrawer({ open, bootstrap, theme, onThemeChange, onSave, 
           <section className="settings-provider-section">
             <div className="settings-provider-header">
               <div>
+                <span className="eyebrow">Reasoning</span>
+                <strong>Model response controls</strong>
+                <p>Adjust reasoning strength, summary detail, and response verbosity for compatible OpenAI Responses models.</p>
+              </div>
+            </div>
+
+            <div className="provider-config-grid response-controls-grid">
+              <label className="field compact-field">
+                <span>Reasoning effort</span>
+                <select defaultValue={bootstrap.config.agents.reasoning_effort ?? "high"} name="reasoningEffort">
+                  {reasoningEfforts.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field compact-field">
+                <span>Reasoning summary</span>
+                <select defaultValue={bootstrap.config.agents.reasoning_summary ?? "detailed"} name="reasoningSummary">
+                  {reasoningSummaries.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field compact-field provider-config-wide">
+                <span>Text verbosity</span>
+                <select defaultValue={bootstrap.config.agents.text_verbosity ?? "medium"} name="textVerbosity">
+                  {textVerbosityLevels.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section className="settings-provider-section">
+            <div className="settings-provider-header">
+              <div>
                 <span className="eyebrow">Models</span>
                 <strong>Provider and model settings</strong>
-                <p>Edit built-in providers or add a custom model entry.</p>
+                <p>Edit built-in providers, add a custom model entry, or add an OpenAI Responses-compatible endpoint.</p>
               </div>
-              <button className="ghost compact" onClick={handleAddProvider} type="button">
-                Add model
-              </button>
+              <div className="settings-provider-buttons">
+              <button className="ghost compact" onClick={handleAddResponsesProvider} type="button">
+                Add Responses API
+                </button>
+                <button className="ghost compact" onClick={handleAddProvider} type="button">
+                  Add model
+                </button>
+              </div>
             </div>
 
             <div className="provider-config-list">
               {providerDrafts.map((provider, index) => (
-                <article className="provider-config-card" key={`${provider.name || "new"}-${index}`}>
+                <article className="provider-config-card" key={provider.id}>
                   <div className="provider-config-card-head">
                     <div>
                       <strong>{provider.name.trim() || `Custom model ${index + 1}`}</strong>
@@ -183,12 +256,16 @@ export function SettingsDrawer({ open, bootstrap, theme, onThemeChange, onSave, 
 
                     <label className="field compact-field">
                       <span>Kind</span>
-                      <input
+                      <select
                         onChange={(event) => updateProviderDraft(index, { kind: event.target.value })}
-                        placeholder="openai"
-                        type="text"
                         value={provider.kind}
-                      />
+                      >
+                        {providerKinds.map((kind) => (
+                          <option key={kind} value={kind}>
+                            {kind}
+                          </option>
+                        ))}
+                      </select>
                     </label>
 
                     <label className="field compact-field">

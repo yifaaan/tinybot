@@ -16,6 +16,7 @@ type Message struct {
 	Role       string    `json:"role"` // user, assistant, tool, system
 	Content    string    `json:"content"`
 	CreatedAt  time.Time `json:"created_at"`
+	Thinking   string    `json:"thinking,omitempty"`
 	ToolCalls  any       `json:"tool_calls,omitempty"`
 	ToolCallID string    `json:"tool_call_id,omitempty"`
 	Name       string    `json:"name,omitempty"`
@@ -61,6 +62,11 @@ func (s *Session) AddMessage(role, content string, attrs map[string]any) {
 		if v, ok := attrs["name"]; ok {
 			if name, ok := v.(string); ok {
 				msg.Name = name
+			}
+		}
+		if v, ok := attrs["thinking"]; ok {
+			if thinking, ok := v.(string); ok {
+				msg.Thinking = thinking
 			}
 		}
 	}

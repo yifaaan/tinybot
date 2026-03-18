@@ -24,6 +24,9 @@ type AgentsConfig struct {
 	Temperature       float64             `json:"temperature"`
 	MaxToolIterations int                 `json:"max_tool_iterations"`
 	EnableThinking    bool                `json:"enable_thinking,omitempty"`
+	ReasoningEffort   string              `json:"reasoning_effort,omitempty"`
+	ReasoningSummary  string              `json:"reasoning_summary,omitempty"`
+	TextVerbosity     string              `json:"text_verbosity,omitempty"`
 	Consolidation     ConsolidationConfig `json:"consolidation,omitempty"`
 	Retry             RetryConfig         `json:"retry,omitempty"`
 }
@@ -131,6 +134,9 @@ func DefaultConfig() *Config {
 			Temperature:       0.7,
 			MaxToolIterations: 20,
 			EnableThinking:    true,
+			ReasoningEffort:   "high",
+			ReasoningSummary:  "detailed",
+			TextVerbosity:     "medium",
 			Consolidation: ConsolidationConfig{
 				Enabled:    true,
 				TokenLimit: 60000,

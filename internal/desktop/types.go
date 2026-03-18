@@ -40,6 +40,7 @@ type SessionMessage struct {
 	Role       string    `json:"role"`
 	Content    string    `json:"content"`
 	CreatedAt  time.Time `json:"createdAt"`
+	Thinking   string    `json:"thinking,omitempty"`
 	Name       string    `json:"name,omitempty"`
 	ToolCallID string    `json:"toolCallId,omitempty"`
 }
@@ -56,9 +57,20 @@ type CreateSessionRequest struct {
 }
 
 type SendMessageRequest struct {
-	SessionKey     string   `json:"sessionKey"`
-	Content        string   `json:"content"`
-	SelectedSkills []string `json:"selectedSkills,omitempty"`
+	SessionKey     string           `json:"sessionKey"`
+	Content        string           `json:"content"`
+	SelectedSkills []string         `json:"selectedSkills,omitempty"`
+	Attachments    []FileAttachment `json:"attachments,omitempty"`
+}
+
+type FileAttachment struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Size    int64  `json:"size"`
+	Preview string `json:"preview,omitempty"`
+	Content string `json:"content,omitempty"` // For text files
+	Path    string `json:"path,omitempty"`
 }
 
 type ChatReply struct {
@@ -82,6 +94,9 @@ type ConfigPatch struct {
 	Temperature              *float64              `json:"temperature,omitempty"`
 	MaxToolIterations        *int                  `json:"maxToolIterations,omitempty"`
 	EnableThinking           *bool                 `json:"enableThinking,omitempty"`
+	ReasoningEffort          *string               `json:"reasoningEffort,omitempty"`
+	ReasoningSummary         *string               `json:"reasoningSummary,omitempty"`
+	TextVerbosity            *string               `json:"textVerbosity,omitempty"`
 	HeartbeatEnabled         *bool                 `json:"heartbeatEnabled,omitempty"`
 	HeartbeatIntervalSeconds *int                  `json:"heartbeatIntervalSeconds,omitempty"`
 	LogLevel                 *string               `json:"logLevel,omitempty"`
